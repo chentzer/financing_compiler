@@ -1,0 +1,34 @@
+# Your statements and generated output are personal financial data.
+statements/*
+!statements/.gitkeep
+output/*
+!output/.gitkeep
+
+# Holds PDF passwords.
+config.toml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Env / secrets
+.env*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Private names/numbers the privacy test checks for.
+privacy_denylist.txt
+NOTES.local.md
+
+# Local Claude Code tooling
+.claude/

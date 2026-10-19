@@ -1,0 +1,103 @@
+# financing_compiler
+
+`fincomp` reads statements from several Malaysian banks and e-wallets and
+writes monthly accounts to the user's Google Sheets. It runs two ways from
+one Python package:
+
+- **Website + Android app** (`web/`): no server. The page runs `fincomp`
+  in the browser with Pyodide, parses PDFs on the device, and calls the
+  Google Sheets/Drive APIs directly with the user's Google sign-in. It's
+  deployed to GitHub Pages; Android is the same app wrapped by Capacitor.
+- **CLI** (`python -m fincomp`) for development and the one-time
+  `--push-settings`.
+
+Started from a friend's TNG/Maybank scripts (a fork of
+Rexpert/TNG_Statement_in_CSV, MIT), rewritten as one tool with a parser per
+source.
+
+**The repo is public.** Read "Privacy" below before adding anything.
+
+## Run
+
+```
+python -m venv .venv
+.venv/Scripts/pip install -e ".[tng,google,dev]"
+.venv/Scripts/python -m fincomp            # reads statements/, writes output/
+.venv/Scripts/python -m pytest
+```
+
+## Layout
+
+- `models.py`: `Transaction`, the common schema every parser emits.
+- `parsers/`: one module per source, bytes in (`parse_bytes`), registered
+  in `parsers/__init__.py`. PDF parsers use only `pypdf` + `re`
+  (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
+  positions. Only TNG v2 (camelot) and CSV (pandas) are CLI-only, and they
+  import those lazily.
+- `pipeline.py`: statements → parsed → dedupe → transfer pairing → account
+  rows → tabs. Used by both the CLI and the web app.
+- `combine.py`: dedupe overlapping statements, pair transfers between the
+  user's own accounts.
+- `accounts.py`: the monthly accounts layout from the user's
+  `Account Template.xlsx` (cell positions, SUMIF summaries, rules, row
+  keys, To Update cards).
+- `sheetplan.py`: **pure** plans of what to read and write in a yearly
+  spreadsheet (no HTTP). `gsheets.py` runs them with gspread (CLI); the web
+  app runs them with fetch().
+- `settings.py`: the "fincomp Settings" sheet (Rules, People, Trips, Own
+  payees, Lists, Removed, hidden Ledger) ↔ `Config`. Passwords are in the
+  Drive App Data folder, never in a sheet.
+- `webapi.py`: the JSON-in/JSON-out functions the web app calls through
+  Pyodide.
+- `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.
+
+Keep `webapi.py`'s import tree free of pandas, numpy, camelot, openpyxl and
+gspread (Pyodide check: see README).
+
+## Accounts layout rules
+
+- Keep the template's positions: Spendings A-F, Earnings N-Q, Category
+  summary H-I, Importance summary K-L, Final in T6. Hidden keys in G and R.
+- Trip tabs copy the user's 2023 trip sheet: RM spending A-F (key in G),
+  trip-currency cash H-M and money received Q-T (both hand-filled, never
+  written by fincomp), summary O-P with the trip total in P8. Month T5 =
+  trips ending that month, Final (T6) subtracts it.
+- Never reorder or write to tabs fincomp doesn't manage; insert new tabs
+  before the next managed tab in date order.
+- Sheets sync is append-only except for the user's own answers and edits:
+  only the answered cells of rows that already have a key are written;
+  rows without a key were typed by hand and are never touched. "Not mine"
+  removes the row from its block and adds its key to Settings › Removed so
+  it never comes back.
+
+## Recording rules (from the user; apply to every parser)
+
+1. Ignore money moving between the user's own accounts, at the same bank
+   or different banks/wallets (mark `internal`; `transfer` too when the
+   other side may be in another statement).
+2. Record only the user's own spending, and money coming in from someone
+   else (family included).
+3. Everything that isn't excluded is recorded: Item = the purpose when the
+   statement gives one, otherwise the shop name or "Transfer"/"QR
+   payment"; Remarks = "To <name>"/"From <name>"; Category from rules or
+   blank. Never hold rows back. Rows missing a purpose and/or Category get
+   a To Update card, shown one at a time right after an upload; skipped
+   cards stay in the "To Update" tab. Editing the month tab directly closes
+   a card.
+
+Per-bank behaviour is documented at the top of each parser. Transfer
+matching pairs parser-flagged transfers with each other before ordinary
+rows, so a same-amount purchase can't take a transfer's partner.
+
+## Privacy (public repo)
+
+- Never commit statements, output, `config.toml` (passwords),
+  `privacy_denylist.txt`, or `NOTES.local.md`. Never hardcode a password.
+- Tests, docs and examples use **made-up** names, numbers and notes only
+  (Jane Tan, Bob Lim, Tan Mei Ling…), never anything copied from a real
+  statement. `tests/test_privacy.py` fails if any term in the local
+  `privacy_denylist.txt` appears in a file git would publish. Add new real
+  names to that list whenever a new statement comes in.
+- The user's own context (which real people/accounts are which) is in the
+  gitignored `NOTES.local.md`.
+- Ask before every push to GitHub.

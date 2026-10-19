@@ -1,0 +1,118 @@
+# Copy this file to config.toml (gitignored) and fill it in.
+# Every setting is optional: with no config.toml, fincomp uses the defaults.
+
+# Days apart that two opposite, equal amounts in different accounts can be
+# and still count as a transfer between your own accounts
+# (e.g. a Maybank card charge that reloads your TNG wallet).
+transfer_window_days = 3
+
+# Dropdown lists (defaults match Account Template.xlsx).
+# categories = ["Bills", "Shopping", "Food", "Health", "Entertainment", "Transport", "Self-Development", "Misc"]
+# importance = ["Essential", "Have to Have", "Nice to Have", "Courtesy", "Regretted"]
+
+# Money in from other people is recorded under Earnings. false = spending only.
+record_earnings = true
+
+
+# Paying these is your own money moving (rule 1), not spending: your credit
+# card bills, investment accounts you top up.
+own_payees = ["AEON CREDIT SERVICE"]
+
+# Where your answers from the To Update cards are kept (outside the repo).
+# answers = "~/.config/fincomp/answers.json"
+
+# How people's names show in Remarks. Unlisted names are shortened
+# automatically ("TAN MEI LING" -> "Mei Ling").
+[people]
+# "TAN MEI LING" = "Mei Ling"
+
+# ---- Google Sheets upload (see "Google Sheets setup" in README.md) ----
+[google]
+spreadsheet = "{year} Accounts"   # one spreadsheet per year
+folder_id = ""                    # Drive folder ID for new spreadsheets; blank = My Drive
+upload = false                    # true = upload on every run, no --upload needed
+# credentials = "~/.config/fincomp/credentials.json"   # defaults shown
+# token = "~/.config/fincomp/token.json"
+
+# ---- Category / Importance rules ----
+# First match wins. `match` is a case-insensitive piece of the statement
+# description (or a list of them); `regex` works too. Optional: `source`
+# (only for that bank/wallet), `item` (rename), `skip = true` (leave it out).
+# Values must be in the dropdown lists below, or they're left blank.
+# Anything no rule matches is left blank for you to pick in the sheet.
+[[rules]]
+match = ["GRAB*FOOD", "FOODPANDA", "MCDONALD", "KFC", "STARBUCKS", "ZUS COFFEE"]
+category = "Food"
+
+[[rules]]
+match = ["GRAB", "MY50", "RFID", "PARKING", "TOUCH N GO TOLL", "SHELL", "PETRONAS"]
+category = "Transport"
+importance = "Essential"
+
+[[rules]]
+match = ["SHOPEE", "LAZADA"]
+category = "Shopping"
+
+[[rules]]
+match = ["TNB", "UNIFI", "MAXIS", "CELCOM", "DIGI", "AIR SELANGOR"]
+category = "Bills"
+importance = "Essential"
+
+[[rules]]
+match = ["NETFLIX", "SPOTIFY", "STEAM"]
+category = "Entertainment"
+importance = "Nice to Have"
+
+[[rules]]
+match = ["ANYTIME FITNESS", "GUARDIAN", "WATSONS", "CLINIC"]
+category = "Health"
+
+# ---- Trips ----
+# Each trip gets its own tab, like the "Japan Trip" sheet in 2023 Accounts.
+# Spending from start to end goes there instead of the month tabs, and so do
+# earlier bookings that match `match` (up to `lead_days` before the trip).
+# A rule can also send a transaction to a trip with trip = "<name>".
+# The trip's total is subtracted from the Final of the month it ends.
+#
+# [[trips]]
+# name = "Japan Trip"
+# start = 2026-11-08
+# end = 2026-11-20
+# currency = "Yen"           # adds cash-in-yen and yen-received blocks; omit for local trips
+# rate = 0.032               # RM per 1 yen; omit to work it out from "Money Exchange" rows
+# match = ["AIRASIA", "AGODA", "KLOOK", "JR PASS"]
+# link = "https://docs.google.com/..."   # your itinerary, shown as "Trip Link"
+# lead_days = 180
+
+# PDF passwords, keyed by parser name.
+[passwords]
+tng = ""
+maybank_cc = ""
+aeon = ""          # AEON statements are usually not password-protected
+aeon_credit = ""   # AEON Credit card e-statement password
+
+# Override which file names each built-in parser picks up (glob patterns).
+# [patterns]
+# tng = ["*transactions*.pdf"]
+# maybank_cc = ["[0-9]*_[0-9]*.pdf"]
+
+# Any bank or wallet that exports CSV/XLSX can be added without code.
+# Each [[csv]] block describes one export format.
+#
+# [[csv]]
+# name = "CIMB"                 # shown in the Source column
+# account = "Savings"           # optional; defaults to name. Use separate
+#                               # [[csv]] blocks for two accounts at one bank.
+# patterns = ["cimb*.csv"]      # which files in statements/ use this format
+# date_column = "Date"
+# date_format = "%d/%m/%Y"      # strftime format; omit to let pandas guess
+# description_column = "Description"
+# # Either one signed amount column (negative = money out) ...
+# amount_column = "Amount"
+# # ... or separate debit / credit columns:
+# # debit_column = "Withdrawal"
+# # credit_column = "Deposit"
+# type_column = ""              # optional
+# reference_column = ""         # optional
+# skip_rows = 0                 # header junk above the column names
+# invert_sign = false           # true if the export shows spending as positive

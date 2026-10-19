@@ -1,0 +1,195 @@
+/**
+ * Everything the screens know about data goes through this interface.
+ *
+ * Today the app runs on MockBackend (synthetic data, in memory). The real
+ * implementation runs the Python `fincomp` package in Pyodide and talks to
+ * the Sheets / Drive APIs with the user's Google token; it plugs in by
+ * implementing this interface (see web/README.md).
+ *
+ * Conventions follow the Python core:
+ * - Dates are ISO strings (YYYY-MM-DD).
+ * - `amount` on a Row/Card is always positive, as in the accounts template;
+ *   `kind` says whether it is spending ("spend") or money in ("earn").
+ * - `key` is the hidden row key fincomp writes in column G / R.
+ */
+
+export const CATEGORIES = [
+  'Bills',
+  'Shopping',
+  'Food',
+  'Health',
+  'Entertainment',
+  'Transport',
+  'Self-Development',
+  'Misc',
+] as const
+export type Category = (typeof CATEGORIES)[number]
+
+export const IMPORTANCE = ['Essential', 'Have to Have', 'Nice to Have', 'Courtesy', 'Regretted'] as const
+export type Importance = (typeof IMPORTANCE)[number]
+
+/** Parser keys that can have a PDF password, with the name shown in the UI. */
+export const STATEMENT_SOURCES: { key: string; label: string }[] = [
+  { key: 'tng', label: "Touch 'n Go eWallet" },
+  { key: 'maybank_sa', label: 'Maybank savings' },
+  { key: 'maybank_cc', label: 'Maybank credit card' },
+  { key: 'aeon', label: 'AEON Bank' },
+  { key: 'aeon_credit', label: 'AEON Credit' },
+  { key: 'gx', label: 'GX Bank' },
+  { key: 'ryt', label: 'Ryt Bank' },
+]
+
+export type Kind = 'spend' | 'earn'
+/** What a card still needs: "purpose" (Item is only "Transfer"/"QR payment") and/or "category". */
+export type Need = 'purpose' | 'category'
+
+/** A recorded row as it sits in a month tab (or a trip tab). */
+export interface Row {
+  key: string
+  kind: Kind
+  date: string
+  item: string
+  amount: number
+  /** Spending only; "" = not filled in. */
+  category: Category | ''
+  /** Spending only; "" = not filled in. */
+  importance: Importance | ''
+  /** "To <name>" / "From <name>". */
+  remarks: string
+  /** Bank or wallet, e.g. "Maybank", "TNG". */
+  source: string
+  /** Trip name when this spending lives on a trip tab. */
+  trip?: string
+}
+
+/** A row from the "To Update" tab: a Row plus what the user still has to answer. */
+export interface Card extends Row {
+  needs: Need[]
+  /** Raw statement description, shown on the card. */
+  statement: string
+  /** The person as on the statement; "" for a shop. Used for "Same for every…". */
+  counterparty: string
+}
+
+export interface CardAnswer {
+  item?: string
+  category?: Category | ''
+  importance?: Importance | ''
+  /** Also add a rule so future rows from the same payee/shop get the same answer. */
+  sameForEvery?: boolean
+}
+
+export type RowEdit = Partial<Pick<Row, 'item' | 'category' | 'importance' | 'remarks'>>
+
+export interface Month {
+  year: number
+  /** 1-12 */
+  month: number
+}
+
+export interface MonthSummary extends Month {
+  byCategory: { name: Category | ''; amount: number }[]
+  byImportance: { name: Importance | ''; amount: number }[]
+  earnings: number
+  spendings: number
+  /** Trips ending this month (their totals come off Final). */
+  trips: { name: string; total: number }[]
+  tripsTotal: number
+  /** earnings - spendings - tripsTotal (T6 in the template). */
+  final: number
+}
+
+export interface UploadFile {
+  name: string
+  data: Uint8Array
+}
+
+export type UploadStatus = 'ok' | 'failed' | 'password'
+
+export interface UploadResult {
+  file: string
+  status: UploadStatus
+  /** Parser that read it, e.g. "tng". */
+  source?: string
+  /** Shown under the file: what was added, or which check failed. */
+  message: string
+  rowsAdded?: number
+  cardsAdded?: number
+  /** status "password": which saved password is missing/wrong (a STATEMENT_SOURCES key). */
+  passwordFor?: string
+  /** status "password": true when a password was tried and didn't open the PDF. */
+  wrongPassword?: boolean
+}
+
+export interface Rule {
+  /** Case-insensitive piece of the statement description. */
+  match: string
+  /** Only for this bank/wallet (parser key); "" = any. */
+  source?: string
+  item?: string
+  category?: Category | ''
+  importance?: Importance | ''
+  trip?: string
+  /** Leave matching rows out. */
+  skip?: boolean
+}
+
+export interface Person {
+  /** Name as on the statement, e.g. "TAN MEI JANE". */
+  statementName: string
+  /** How it shows in Remarks, e.g. "Jane Tan". */
+  shownAs: string
+}
+
+export interface Trip {
+  name: string
+  start: string
+  end: string
+  /** e.g. "Yen"; blank for local trips. */
+  currency?: string
+  /** RM per 1 unit of currency. */
+  rate?: number
+  /** Statement pieces that send earlier bookings to this trip. */
+  match: string[]
+  link?: string
+}
+
+/** Lives in the "fincomp Settings" sheet. */
+export interface Settings {
+  rules: Rule[]
+  people: Person[]
+  trips: Trip[]
+  /** Payees that are the user's own money moving (card bills, investments). */
+  ownPayees: string[]
+}
+
+/** PDF passwords keyed by STATEMENT_SOURCES key. Lives in Drive App Data (passwords.json). */
+export type Passwords = Record<string, string>
+
+export interface Backend {
+  /** Months that have a tab, oldest first. */
+  listMonths(): Promise<Month[]>
+  monthSummary(year: number, month: number): Promise<MonthSummary>
+  monthRows(year: number, month: number): Promise<Row[]>
+  editRow(key: string, fields: RowEdit): Promise<void>
+
+  /** Open To Update cards, oldest first. */
+  listCards(): Promise<Card[]>
+  saveCard(key: string, answer: CardAnswer): Promise<void>
+  /** "Later": leave it in To Update. */
+  skipCard(key: string): Promise<void>
+  /** "Not mine": remove the row from its block. */
+  notMine(key: string): Promise<void>
+
+  /**
+   * Parse, record and sync statements. `passwords` are extra ones typed in
+   * this upload (keyed by source); saved passwords are used automatically,
+   * and a typed one is saved after it opens a PDF.
+   */
+  uploadStatements(files: UploadFile[], passwords?: Passwords): Promise<UploadResult[]>
+
+  getSettings(): Promise<Settings>
+  saveSettings(settings: Settings): Promise<void>
+  getPasswords(): Promise<Passwords>
+  savePasswords(passwords: Passwords): Promise<void>
+}

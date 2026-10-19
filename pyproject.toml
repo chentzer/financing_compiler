@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fincomp"
+version = "0.1.0"
+description = "Combine bank and e-wallet statements into one ledger."
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.1",
+    "openpyxl>=3.1",
+    "pypdf>=4.0",
+    "cryptography>=42",  # pypdf needs it to open AES-encrypted statements
+]
+
+[project.optional-dependencies]
+# Touch 'n Go statements are table-based and need camelot.
+tng = ["camelot-py>=0.11"]
+# Uploading the accounts to Google Sheets.
+google = ["gspread>=6.1", "google-auth-oauthlib>=1.2"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+fincomp = "fincomp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
