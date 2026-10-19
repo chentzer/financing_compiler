@@ -3,6 +3,7 @@ import type { Auth } from './auth/Auth'
 import { DemoAuth } from './auth/DemoAuth'
 import { GoogleWebAuth } from './auth/GoogleWebAuth'
 import { NativeAuth } from './auth/NativeAuth'
+import { NotConfiguredAuth } from './auth/NotConfiguredAuth'
 import type { Backend } from './data/Backend'
 import { MockBackend } from './data/MockBackend'
 import { PyodideBackend } from './data/PyodideBackend'
@@ -18,7 +19,7 @@ export function createAuth(): Auth {
   if (import.meta.env.VITE_BACKEND !== 'real') return new DemoAuth()
   if (Capacitor.isNativePlatform()) return new NativeAuth()
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-  if (!clientId) throw new Error('VITE_GOOGLE_CLIENT_ID is not set.')
+  if (!clientId) return new NotConfiguredAuth()
   return new GoogleWebAuth(clientId)
 }
 

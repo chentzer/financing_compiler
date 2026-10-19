@@ -38,8 +38,9 @@ jobs:
         working-directory: web
         env:
           # Repo Settings > Secrets and variables > Actions > Variables.
-          # Until GOOGLE_CLIENT_ID is set, the site builds in demo mode.
-          VITE_BACKEND: ${{ vars.GOOGLE_CLIENT_ID && 'real' || 'mock' }}
+          # The live site always uses your real Google Drive (no demo data).
+          # Until GOOGLE_CLIENT_ID is set, sign-in explains what's missing.
+          VITE_BACKEND: real
           VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           VITE_ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
 
