@@ -101,3 +101,6 @@ rows, so a same-amount purchase can't take a transfer's partner.
 - The user's own context (which real people/accounts are which) is in the
   gitignored `NOTES.local.md`.
 - Ask before every push to GitHub.
+- Commits here use the GitHub noreply address
+  (`109493984+chentzer@users.noreply.github.com`, set in this repo's git
+  config), not the personal email: the repo is public.
