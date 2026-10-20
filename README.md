@@ -282,6 +282,16 @@ adds one by hand to a month or a trip.
 
 Tabs you make yourself, like "Chinese New Year", are never touched or moved.
 
+### Sheets (your own tabs)
+
+The app's **Sheets** section makes tabs of your own in a year's spreadsheet,
+like an ang pao sheet: one or more tables side by side, each with a name, a
+currency (RM, SGD, ...) and a name column ("Person"), with its total on top.
+A sheet can count as earnings or spending, and then its RM tables are added
+to the Year End Summary. Importing an old accounts workbook turns tabs like
+2023's "Chinese New Year" into a sheet, counted the way the old Year End
+Summary counted it.
+
 **Re-running is safe.** Columns G and R are hidden and hold a key for each
 uploaded row. A re-run only appends transactions that aren't in the sheet
 yet, then sorts by date. Rows already there aren't rewritten, so Categories

@@ -19,6 +19,9 @@ import {
   type Backend,
   type Card,
   type CardAnswer,
+  type CustomSheet,
+  type SheetRow,
+  type SheetTableRows,
   type Category,
   type Importance,
   type Month,
@@ -54,7 +57,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
   'October', 'November', 'December']
 const SETTINGS_RANGES: Record<string, string> = {
   Rules: "'Rules'!A1:H", People: "'People'!A1:B", Trips: "'Trips'!A1:H", 'Own payees': "'Own payees'!A1:A",
-  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D",
+  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D", Sheets: "'Sheets'!A1:D",
 }
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
@@ -349,6 +352,112 @@ export class PyodideBackend implements Backend {
     }
   }
 
+  // ---- custom sheets (Sheets section) --------------------------------------------------
+
+  async listSheets(): Promise<CustomSheet[]> {
+    await this.useSettings()
+    return py<CustomSheet[]>('sheets_list', [])
+  }
+
+  async saveSheet(sheet: CustomSheet, previousName?: string): Promise<void> {
+    const list = await this.listSheets()
+    const i = list.findIndex((s) => s.name === (previousName ?? sheet.name))
+    if (i >= 0 && list[i].year !== sheet.year) throw new Error("A sheet's year can't change.")
+    const next = i >= 0 ? list.map((s, j) => (j === i ? sheet : s)) : [...list, sheet]
+    // Settings › Sheets (a Settings sheet made before sheets existed gets the tab now).
+    const id = await this.settingsBook()
+    await this.ensureSettingsTab(id, 'Sheets', ['Name', 'Year', 'Counts as (earnings / spending / blank)', 'Tables (name / currency / column ; ...)'])
+    const rows = await py<unknown[][]>('sheets_rows', [next])
+    await this.g.clear(id, ["'Sheets'!A2:D"])
+    if (rows.length) await this.g.write(id, [{ range: "'Sheets'!A2", values: rows }], 'RAW')
+    await this.useSettings(true)
+
+    // Its tab in that year's spreadsheet.
+    let book = await this.book(sheet.year)
+    let created = false
+    if (!book) {
+      book = { year: sheet.year, id: await this.g.createSpreadsheet(await py<string>('spreadsheet_title', [sheet.year])) }
+      this.books = [...(this.books ?? []), book].sort((a, b) => a.year - b.year)
+      created = true
+    }
+    let tabs = await this.g.tabs(book.id)
+    const old = previousName && previousName !== sheet.name ? tabs.find((t) => t.title === previousName) : undefined
+    if (old) {
+      await this.g.batch(book.id, [{ updateSheetProperties: { properties: { sheetId: old.sheetId, title: sheet.name }, fields: 'title' } }])
+    } else if (!tabs.some((t) => t.title === sheet.name)) {
+      const before = tabs.findIndex((t) => t.title === 'Year End Summary')
+      await this.g.batch(book.id, [
+        { addSheet: { properties: { title: sheet.name, index: before >= 0 ? before : tabs.length, gridProperties: { rowCount: 1000, columnCount: Math.max(12, sheet.tables.length * 6 + 2) } } } },
+        ...(created ? [{ deleteSheet: { sheetId: tabs[0].sheetId } }] : []),
+      ])
+    }
+    tabs = await this.g.tabs(book.id)
+    const tab = tabs.find((t) => t.title === sheet.name)!
+    const cols = sheet.tables.length * 6 + 2
+    await this.g.batch(book.id, [{ updateSheetProperties: { properties: { sheetId: tab.sheetId, gridProperties: { columnCount: Math.max(cols, 12) } }, fields: 'gridProperties.columnCount' } }])
+    const setup = await py<{ data: Plan['data']; requests: object[] }>('custom_setup', [sheet.name, tab.sheetId])
+    await this.run(book.id, { clear: [], ...setup })
+    if (tabs.some((t) => t.title === 'Year End Summary')) {
+      await this.g.write(book.id, await py<Plan['data']>('year_summary', [sheet.year, tabs.map((t) => t.title)]), 'USER_ENTERED')
+    }
+  }
+
+  private async sheetBook(name: string): Promise<{ book: Book; ranges: string[]; sheetId: number } | null> {
+    const sheet = (await this.listSheets()).find((s) => s.name === name)
+    if (!sheet) throw new Error(`No sheet called "${name}".`)
+    const book = await this.book(sheet.year)
+    const tab = book ? (await this.g.tabs(book.id)).find((t) => t.title === name) : undefined
+    if (!book || !tab) return null
+    return { book, ranges: await py<string[]>('custom_ranges', [name]), sheetId: tab.sheetId }
+  }
+
+  async sheetRows(name: string): Promise<SheetTableRows[]> {
+    const at = await this.sheetBook(name)
+    const values: Record<string, Values> = {}
+    if (at) {
+      const vals = await this.g.read(at.book.id, at.ranges, 'UNFORMATTED_VALUE')
+      at.ranges.forEach((r, i) => (values[r] = vals[i]))
+    }
+    return py<SheetTableRows[]>('custom_rows', [name, values])
+  }
+
+  async addSheetRow(name: string, table: number, row: Omit<SheetRow, 'key'>): Promise<void> {
+    let at = await this.sheetBook(name)
+    if (!at) {
+      await this.saveSheet((await this.listSheets()).find((s) => s.name === name)!) // its tab went missing: make it again
+      at = (await this.sheetBook(name))!
+    }
+    const vals = await this.g.read(at.book.id, [at.ranges[table]], 'UNFORMATTED_VALUE')
+    await this.g.write(at.book.id, await py<Plan['data']>('custom_add', [name, table, vals[0], row]), 'USER_ENTERED')
+  }
+
+  private async sheetValues(name: string) {
+    const at = await this.sheetBook(name)
+    if (!at) throw new Error('That sheet has no tab yet.')
+    const vals = await this.g.read(at.book.id, at.ranges, 'FORMULA')
+    return { at, values: Object.fromEntries(at.ranges.map((r, i) => [r, vals[i]])) }
+  }
+
+  async editSheetRow(name: string, key: string, fields: Partial<Omit<SheetRow, 'key'>>): Promise<void> {
+    const { at, values } = await this.sheetValues(name)
+    const data = await py<Plan['data']>('custom_edit', [name, values, key, fields])
+    if (!data.length) throw new Error('That row is no longer in the sheet. Reload and try again.')
+    await this.g.write(at.book.id, data, 'USER_ENTERED')
+  }
+
+  async deleteSheetRow(name: string, key: string): Promise<void> {
+    const { at, values } = await this.sheetValues(name)
+    const requests = await py<object[]>('custom_remove', [name, at.sheetId, values, key])
+    if (!requests.length) throw new Error('That row is no longer in the sheet. Reload and try again.')
+    await this.g.batch(at.book.id, requests)
+  }
+
+  private async ensureSettingsTab(id: string, title: string, header: string[]): Promise<void> {
+    if ((await this.g.tabs(id)).some((t) => t.title === title)) return
+    await this.g.batch(id, [{ addSheet: { properties: { title, gridProperties: { rowCount: 200, columnCount: header.length } } } }])
+    await this.g.write(id, [{ range: `${quote(title)}!A1`, values: [header] }], 'RAW')
+  }
+
   /** Settings tabs to read: a Settings sheet made before a tab existed (Reviewed) just lacks it. */
   private async settingsTabs(id: string): Promise<string[]> {
     const have = new Set((await this.g.tabs(id)).map((t) => t.title))
@@ -411,21 +520,62 @@ export class PyodideBackend implements Backend {
   private async importWorkbook(file: UploadFile): Promise<UploadResult> {
     try {
       await this.useSettings()
-      const out = await py<{ months: Record<string, object[]>; years: Record<string, number> }>(
+      type OldTrip = { name: string; currency: string; start: string; end: string; year: number; rate: number | null;
+        rm: object[]; cash: object[]; received: object[] }
+      type OldSheet = { name: string; year: number; counts: CustomSheet['counts'];
+        tables: (CustomSheet['tables'][number] & { rows: object[] })[] }
+      const out = await py<{ months: Record<string, object[]>; years: Record<string, number>; trips: OldTrip[]; sheets: OldSheet[] }>(
         'old_accounts', [null], [{ name: file.name, data: file.data }])
       const titles = Object.keys(out.months)
-      if (!titles.length) {
+      if (!titles.length && !out.trips.length && !out.sheets.length) {
         return { file: file.name, status: 'failed', message: 'No month tabs (like "September 2022") with Date / Item / Amount columns found.' }
       }
       let added = 0
+      let total = 0
       for (const t of titles) {
-        const fin = await this.placeRowsCounted(out.years[t], out.months[t], t)
-        added += fin
+        added += await this.placeRowsCounted(out.years[t], out.months[t], t)
+        total += out.months[t].length
       }
-      const total = titles.reduce((n, t) => n + out.months[t].length, 0)
+      const parts = titles.length ? [titles.length === 1 ? titles[0] : `${titles.length} months`] : []
+
+      // Trips: added to Settings › Trips (which makes the tab), then all three blocks.
+      for (const trip of out.trips) {
+        const st = await this.getSettings()
+        if (!st.trips.some((t) => t.name === trip.name)) {
+          st.trips.push({ name: trip.name, start: trip.start, end: trip.end, currency: trip.currency || undefined,
+            rate: trip.rate ?? undefined, match: [] })
+          await this.saveSettings(st)
+        }
+        added += await this.placeRowsCounted(trip.year, trip.rm, trip.name)
+        total += trip.rm.length + trip.cash.length + trip.received.length
+        const book = (await this.book(trip.year))!
+        const ranges = await py<string[]>('trip_extra_ranges', [trip.name])
+        const [cash, received] = await this.g.read(book.id, ranges, 'UNFORMATTED_VALUE')
+        const data = await py<Plan['data']>('trip_extras', [trip.name, cash, received, trip.cash, trip.received])
+        if (data.length) await this.g.write(book.id, data, 'USER_ENTERED')
+        added += data.reduce((n, d) => n + d.values.length, 0)
+        parts.push(trip.name)
+      }
+
+      // Your own tabs (e.g. ang pao): a sheet in the Sheets section, then its rows.
+      for (const sh of out.sheets) {
+        if (!(await this.listSheets()).some((s) => s.name === sh.name)) {
+          await this.saveSheet({ name: sh.name, year: sh.year, counts: sh.counts,
+            tables: sh.tables.map((t) => ({ name: t.name, currency: t.currency, label: t.label })) })
+        }
+        const at = (await this.sheetBook(sh.name))!
+        const vals = await this.g.read(at.book.id, at.ranges, 'UNFORMATTED_VALUE')
+        for (const [i, t] of sh.tables.entries()) {
+          total += t.rows.length
+          const data = await py<Plan['data']>('custom_add_many', [sh.name, i, vals[i] ?? [], t.rows])
+          if (data.length) await this.g.write(at.book.id, data, 'USER_ENTERED')
+          added += data.reduce((n, d) => n + d.values.length, 0)
+        }
+        parts.push(`${sh.name} (Sheets)`)
+      }
       return {
         file: file.name, status: 'ok', source: 'workbook', rowsAdded: added,
-        message: `${added} of ${total} rows copied into ${titles.join(', ')}${added < total ? ' (the rest were already there)' : ''}.`,
+        message: `${added} of ${total} rows copied into ${parts.join(', ')}${added < total ? ' (the rest were already there)' : ''}.`,
       }
     } catch (e) {
       return { file: file.name, status: 'failed', message: e instanceof Error ? e.message : String(e) }

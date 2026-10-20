@@ -173,6 +173,37 @@ export interface Trip {
   link?: string
 }
 
+/** One table on a custom sheet: Date | <label> | Amount (<currency>) | Remarks. */
+export interface SheetTable {
+  name: string
+  currency: string
+  /** The second column, e.g. "Person" for ang pao. */
+  label: string
+}
+
+/** A tab of your own in a year's spreadsheet (Sheets section), e.g. "Chinese New Year". */
+export interface CustomSheet {
+  name: string
+  year: number
+  /** RM tables count towards the Year End Summary as this; "" = not counted. */
+  counts: '' | 'earnings' | 'spending'
+  tables: SheetTable[]
+}
+
+export interface SheetRow {
+  key: string
+  date: string
+  item: string
+  amount: number
+  remarks: string
+}
+
+export interface SheetTableRows extends SheetTable {
+  index: number
+  total: number
+  rows: SheetRow[]
+}
+
 /** Lives in the "fincomp Settings" sheet. */
 export interface Settings {
   rules: Rule[]
@@ -224,6 +255,15 @@ export interface Backend {
   /** Keep a copy of each uploaded PDF in Drive › fincomp › statements (off: read, then discarded). */
   getKeepPdfCopies(): Promise<boolean>
   setKeepPdfCopies(on: boolean): Promise<void>
+
+  /** Your own sheets (Sheets section). */
+  listSheets(): Promise<CustomSheet[]>
+  /** Make or change a sheet (its tab follows). Tables can be added or renamed, never removed. */
+  saveSheet(sheet: CustomSheet, previousName?: string): Promise<void>
+  sheetRows(name: string): Promise<SheetTableRows[]>
+  addSheetRow(name: string, table: number, row: Omit<SheetRow, 'key'>): Promise<void>
+  editSheetRow(name: string, key: string, fields: Partial<Omit<SheetRow, 'key'>>): Promise<void>
+  deleteSheetRow(name: string, key: string): Promise<void>
 
   /** Your category list (Settings › Lists). */
   listCategories(): Promise<Category[]>

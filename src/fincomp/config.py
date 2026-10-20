@@ -48,6 +48,27 @@ class Trip:
         return any(m.lower() in text for m in self.match)
 
 
+@dataclass
+class CustomTable:
+    """One table on a custom sheet: Date, <label>, Amount (<currency>), Remarks."""
+
+    name: str
+    currency: str = "RM"
+    label: str = "Item"  # the second column, e.g. "Person" for ang pao
+
+
+@dataclass
+class CustomSheet:
+    """A tab of your own in a year's spreadsheet (e.g. "Chinese New Year"
+    with ang pao received in RM and SGD). Its RM tables can count towards
+    the Year End Summary."""
+
+    name: str
+    year: int
+    counts: str = ""  # "earnings", "spending" or "" (not counted)
+    tables: list[CustomTable] = field(default_factory=list)
+
+
 def _date(v) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
@@ -77,6 +98,7 @@ class Config:
     importance: list[str] = field(default_factory=lambda: list(DEFAULT_IMPORTANCE))
     google: GoogleConfig = field(default_factory=GoogleConfig)
     trips: list[Trip] = field(default_factory=list)
+    sheets: list[CustomSheet] = field(default_factory=list)  # your own tabs (Settings › Sheets)
     # Money from other people goes under Earnings (rule 2). Money moving
     # between your own accounts is never recorded either way.
     record_earnings: bool = True

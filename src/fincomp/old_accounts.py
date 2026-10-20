@@ -146,3 +146,168 @@ def rows_from_workbook(data: bytes) -> dict[str, list[dict]]:
         if found:
             out[title] = found
     return out
+
+
+def _formulas(data: bytes, title: str) -> list[str]:
+    """Formulas on one sheet (to see what the old Year End Summary added up)."""
+    z = zipfile.ZipFile(io.BytesIO(data))
+    rels = {r.get("Id"): r.get("Target")
+            for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels")).findall("pr:Relationship", NS)}
+    for sheet in ET.fromstring(z.read("xl/workbook.xml")).find("m:sheets", NS):
+        if sheet.get("name") != title:
+            continue
+        target = rels[sheet.get(f"{{{NS['r']}}}id")].lstrip("/")
+        root = ET.fromstring(z.read(target if target.startswith("xl/") else "xl/" + target))
+        return [f.text or "" for f in root.iter(f"{{{NS['m']}}}f")]
+    return []
+
+
+def _amount_currency(header: object) -> str | None:
+    """"Amount (Yen)" -> "Yen"; "Amount (RM)" -> "RM"; else None."""
+    m = re.fullmatch(r"\s*amount\s*\(([^)]+)\)\s*", str(header), re.IGNORECASE)
+    return m.group(1).strip() if m else None
+
+
+def _starts(header: dict[int, object]) -> list[int]:
+    return sorted(c for c, v in header.items() if str(v).strip().lower() == "date")
+
+
+def _block(header: dict[int, object], start: int) -> list[str]:
+    """Header names from `start` up to the next blank or "Date"."""
+    names, c = [], start
+    while c in header and str(header[c]).strip() and (c == start or str(header[c]).strip().lower() != "date"):
+        names.append(str(header[c]).strip())
+        c += 1
+    return names
+
+
+def _year(dates: list[date], fallback: int) -> int:
+    return Counter(d.year for d in dates).most_common(1)[0][0] if dates else fallback
+
+
+def _key(ident: str, seen: Counter) -> str:
+    seen[ident] += 1
+    return "m-" + hashlib.sha1(f"{ident}|{seen[ident]}".encode()).hexdigest()[:12]
+
+
+def _old_rate(rows: dict[int, dict[int, object]], currency: str) -> float | None:
+    """The rate the old trip sheet used: its "Total Spent in <currency>" and
+    the RM it came to ("Total Spent in MYR (...)")."""
+    spent = in_rm = None
+    for cells in rows.values():
+        for c, v in cells.items():
+            label = str(v).strip().lower()
+            value = cells.get(c + 1)
+            if not isinstance(value, float):
+                continue
+            if currency and label == f"total spent in {currency.lower()}":
+                spent = value
+            elif label.startswith("total spent in myr (") or label.startswith("total spent in rm ("):
+                in_rm = value
+    return round(in_rm / spent, 6) if spent and in_rm else None
+
+
+def trips_from_workbook(data: bytes) -> list[dict]:
+    """Trip tabs in the layout of the 2023 "Japan Trip" sheet: header in row 3
+    with an RM block (Date, Item, Category, Amount (RM), Importance, Remarks),
+    a block in the trip's currency with Category (spending), and one without
+    (money received). The trip's dates come from its currency spending."""
+    sheets = read_sheets(data)
+    years = [parse_month_title(t)[0] for t in sheets if parse_month_title(t)]
+    out = []
+    for title, rows in sheets.items():
+        if parse_month_title(title) or 3 not in rows:
+            continue
+        header = rows[3]
+        blocks = [(s, _block(header, s)) for s in _starts(header)]
+        rm = next(((s, b) for s, b in blocks if "Category" in b and any(_amount_currency(h) == "RM" for h in b)), None)
+        if not rm:
+            continue
+        cur_blocks = [(s, b) for s, b in blocks if any((_amount_currency(h) or "RM") != "RM" for h in b)]
+        cash = next(((s, b) for s, b in cur_blocks if "Category" in b), None)
+        received = next(((s, b) for s, b in cur_blocks if "Category" not in b), None)
+        currency = next((c for _, b in cur_blocks for h in b if (c := _amount_currency(h))), "")
+
+        def take(block, need_date: bool) -> list[dict]:
+            if not block:
+                return []
+            start, names = block
+            found = []
+            for r in sorted(k for k in rows if k > 3):
+                cells = {names[i].lower(): rows[r].get(start + i) for i in range(len(names))}
+                amount = next((v for k, v in cells.items() if k.startswith("amount")), None)
+                when = _date(cells.get("date"))
+                item = str(cells.get("item") or "").strip()
+                if not isinstance(amount, float) or not amount or (need_date and when is None) or not (item or when):
+                    continue
+                found.append({"date": when.isoformat() if when else "", "item": item, "amount": round(abs(amount), 2),
+                              "category": str(cells.get("category") or "").strip(),
+                              "importance": str(cells.get("importance") or "").strip(),
+                              "remarks": str(cells.get("remarks") or "").strip()})
+            return found
+
+        rm_rows, cash_rows, received_rows = take(rm, True), take(cash, False), take(received, False)
+        rate = _old_rate(rows, currency)
+        seen: Counter = Counter()
+        for r in rm_rows:
+            r.update(kind="spend", source="", key=_key(f"{title}|spend|{r['date']}|{r['item']}|{r['amount']:.2f}", seen))
+        trip_dates = sorted(date.fromisoformat(r["date"]) for r in (cash_rows or rm_rows) if r["date"])
+        if not trip_dates:
+            continue
+        out.append({
+            "name": title, "currency": currency, "start": trip_dates[0].isoformat(), "end": trip_dates[-1].isoformat(),
+            "year": _year(trip_dates, years[0] if years else trip_dates[0].year), "rate": rate,
+            "rm": rm_rows, "cash": cash_rows, "received": received_rows,
+        })
+    return out
+
+
+def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict]:
+    """Other tabs made of tables under a header row 2 like Date, Person,
+    Amount (RM), Remarks (the 2023 "Chinese New Year" ang pao tab). Whether a
+    sheet counted as earnings or spending comes from the old Year End
+    Summary's formulas."""
+    sheets = read_sheets(data)
+    years = [parse_month_title(t)[0] for t in sheets if parse_month_title(t)]
+    summary = next((t for t in sheets if t.strip().lower() == "year end summary"), None)
+    formulas = _formulas(data, summary) if summary else []
+    out = []
+    for title, rows in sheets.items():
+        if parse_month_title(title) or title in skip or title == summary or 2 not in rows:
+            continue
+        header = rows[2]
+        tables, all_dates = [], []
+        for start in _starts(header):
+            names = _block(header, start)
+            amount_i = next((i for i, h in enumerate(names) if _amount_currency(h)), None)
+            if amount_i is None or len(names) < 3:
+                continue
+            label = names[1] if amount_i != 1 else "Item"
+            remarks_i = next((i for i, h in enumerate(names) if h.lower() == "remarks"), None)
+            currency = _amount_currency(names[amount_i]) or "RM"
+            heading = rows.get(1, {}).get(start)
+            found, seen = [], Counter()
+            for r in sorted(k for k in rows if k > 2):
+                cells = rows[r]
+                amount = cells.get(start + amount_i)
+                when = _date(cells.get(start))
+                item = str(cells.get(start + 1) or "").strip() if amount_i != 1 else ""
+                remarks = str(cells.get(start + remarks_i) or "").strip() if remarks_i is not None else ""
+                if not isinstance(amount, float) or not amount or not (when or item):
+                    continue  # blanks, and the old total row (no date, no name)
+                found.append({"date": when.isoformat() if when else "", "item": item, "amount": round(abs(amount), 2),
+                              "remarks": remarks, "key": _key(f"{title}|{start}|{when}|{item}|{amount:.2f}", seen)})
+                if when:
+                    all_dates.append(when)
+            name = f"{heading} ({currency})" if heading else currency
+            tables.append({"name": name, "currency": currency, "label": label, "rows": found})
+        if not any(t["rows"] for t in tables):
+            continue
+        counts = ""
+        if len(formulas) >= 2:
+            refs = (f"'{title}'!", f"{title}!")
+            counts = "earnings" if any(x in formulas[0] for x in refs) else \
+                "spending" if any(x in formulas[1] for x in refs) else ""
+        out.append({"name": title, "year": _year(all_dates, years[0] if years else date.today().year),
+                    "counts": counts, "tables": tables})
+    return out

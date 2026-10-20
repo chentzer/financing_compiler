@@ -244,7 +244,10 @@ def finish(
     for t, cells in month_links(months, config.trips, set(trips)).items():
         for c in (TRIPS_CELL, FINAL_CELL):
             data.append({"range": f"{quote(t)}!{c}", "values": [[cells[c]]]})
-    for c, value in year_summary_cells(months, trips).items():
+    from .custom import summary_refs
+
+    extra = summary_refs(config.sheets, set(prepared.order), year)
+    for c, value in year_summary_cells(months, trips, *extra).items():
         data.append({"range": f"{quote(YEAR_SUMMARY)}!{c}", "values": [[value]]})
 
     # The To Update tab: what's still missing, minus rows the user fixed

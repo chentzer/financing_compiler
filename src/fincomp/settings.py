@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .config import Config, Trip
+from .config import Config, CustomSheet, Trip
 from .models import Transaction
 
 SETTINGS_TITLE = "fincomp Settings"
@@ -27,8 +27,9 @@ OWN_PAYEES = "Own payees"
 LISTS = "Lists"
 REMOVED = "Removed"
 REVIEWED = "Reviewed"  # cards you skipped: rows kept as recorded
+SHEETS = "Sheets"  # your own tabs (custom sheets)
 LEDGER = "Ledger"
-TABS = [RULES, PEOPLE, TRIPS, OWN_PAYEES, LISTS, REMOVED, REVIEWED, LEDGER]
+TABS = [RULES, PEOPLE, TRIPS, OWN_PAYEES, LISTS, SHEETS, REMOVED, REVIEWED, LEDGER]
 HIDDEN = {LEDGER}
 
 HEADERS = {
@@ -40,6 +41,7 @@ HEADERS = {
     LISTS: ["Categories", "Importance"],
     REMOVED: ["Key", "Date", "Amount (RM)", "Statement"],
     REVIEWED: ["Key", "Date", "Amount (RM)", "Statement"],
+    SHEETS: ["Name", "Year", "Counts as (earnings / spending / blank)", "Tables (name / currency / column ; ...)"],
     LEDGER: Transaction.columns(),
 }
 SEP = " | "
@@ -103,6 +105,20 @@ def config_from_tabs(values: dict[str, list[list]], passwords: dict[str, str] | 
         config.importance = imps
     config.removed = {_s(r, 0) for r in _body(values, REMOVED) if _s(r, 0)}
     config.reviewed = {_s(r, 0) for r in _body(values, REVIEWED) if _s(r, 0)}
+    from .custom import decode_tables
+
+    sheets = []
+    for r in _body(values, SHEETS):
+        try:
+            year = int(float(_s(r, 1)))
+        except ValueError:
+            continue
+        counts = _s(r, 2).lower()
+        if _s(r, 0):
+            sheets.append(CustomSheet(_s(r, 0), year, counts if counts in ("earnings", "spending") else "",
+                                      decode_tables(_s(r, 3))))
+    if SHEETS in values:
+        config.sheets = sheets
     if passwords is not None:
         config.passwords = dict(passwords)
     return config
@@ -126,7 +142,11 @@ def tabs_from_config(config: Config) -> dict[str, list[list]]:
     ]
     n = max(len(config.categories), len(config.importance))
     lists = [[(config.categories + [""] * n)[i], (config.importance + [""] * n)[i]] for i in range(n)]
+    from .custom import encode_tables
+
+    sheets = [[s.name, s.year, s.counts, encode_tables(s.tables)] for s in config.sheets]
     return {
+        SHEETS: [HEADERS[SHEETS], *sheets],
         RULES: [HEADERS[RULES], *rules],
         PEOPLE: [HEADERS[PEOPLE], *([k, v] for k, v in config.people.items())],
         TRIPS: [HEADERS[TRIPS], *trips],

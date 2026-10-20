@@ -56,15 +56,21 @@ python -m venv .venv
   spreadsheet (no HTTP). `gsheets.py` runs them with gspread (CLI); the web
   app runs them with fetch().
 - `settings.py`: the "fincomp Settings" sheet (Rules, People, Trips, Own
-  payees, Lists, Removed, hidden Ledger) ↔ `Config`. Passwords are in the
+  payees, Lists, Sheets, Removed, Reviewed, hidden Ledger) ↔ `Config`. Passwords are in the
   Drive App Data folder, never in a sheet.
 - `suggest.py`: category suggestions for To Update cards (your past rows,
   then common shop words). Categories are the user's list (Settings ›
   Lists); adding one rewrites month tabs' By Category block and dropdowns
   (`sheetplan.category_refresh`).
+- `custom.py`: custom sheets (app's Sheets section): tabs of tables
+  (Date | <label> | Amount (<currency>) | Remarks | key), 6 columns each,
+  listed in Settings › Sheets; RM tables of a sheet that counts as
+  earnings/spending feed the Year End Summary. Managed by fincomp once listed.
 - `old_accounts.py`: an accounts workbook the user kept by hand (template
   layout, .xlsx; zipfile + xml, no openpyxl) copied into the new layout as
   hand-added rows with content-based "m-" keys, so re-importing adds nothing.
+  Trip tabs (2023 "Japan Trip" layout) become a trip in Settings plus all
+  three blocks; other table tabs (ang pao) become custom sheets.
 - `webapi.py`: the JSON-in/JSON-out functions the web app calls through
   Pyodide.
 - `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.

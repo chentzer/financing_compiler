@@ -5,6 +5,9 @@ import {
   type Backend,
   type Card,
   type CardAnswer,
+  type CustomSheet,
+  type SheetRow,
+  type SheetTableRows,
   type Month,
   type MonthSummary,
   type NewRow,
@@ -50,6 +53,60 @@ export class MockBackend implements Backend {
   private s: MockState = initialState()
   private cats: string[] = [...CATEGORIES]
   private keepCopies = false
+  private sheets: CustomSheet[] = [{
+    name: 'Chinese New Year', year: 2026, counts: 'earnings',
+    tables: [{ name: 'Ang Pao (RM)', currency: 'RM', label: 'Person' }, { name: 'Ang Pao (SGD)', currency: 'SGD', label: 'Person' }],
+  }]
+  private sheetData = new Map<string, SheetRow[][]>([['Chinese New Year', [
+    [{ key: 's1', date: '2026-02-17', item: 'Auntie Mei', amount: 50, remarks: '' }, { key: 's2', date: '2026-02-17', item: 'Uncle Bob', amount: 100, remarks: 'Penang' }],
+    [{ key: 's3', date: '2026-02-20', item: 'SG cousin', amount: 10, remarks: '' }],
+  ]]])
+
+  async listSheets(): Promise<CustomSheet[]> {
+    await wait(50)
+    return clone(this.sheets)
+  }
+
+  async saveSheet(sheet: CustomSheet, previousName?: string): Promise<void> {
+    await wait()
+    const i = this.sheets.findIndex((s) => s.name === (previousName ?? sheet.name))
+    if (i >= 0) this.sheets[i] = clone(sheet)
+    else this.sheets.push(clone(sheet))
+    const data = this.sheetData.get(previousName ?? sheet.name) ?? []
+    this.sheetData.delete(previousName ?? sheet.name)
+    this.sheetData.set(sheet.name, sheet.tables.map((_, t) => data[t] ?? []))
+  }
+
+  async sheetRows(name: string): Promise<SheetTableRows[]> {
+    await wait(100)
+    const sheet = this.sheets.find((s) => s.name === name)
+    if (!sheet) throw new Error(`No sheet called "${name}".`)
+    const data = this.sheetData.get(name) ?? []
+    return sheet.tables.map((t, index) => {
+      const rows = clone(data[index] ?? [])
+      return { ...t, index, rows, total: Math.round(rows.reduce((a, r) => a + r.amount, 0) * 100) / 100 }
+    })
+  }
+
+  async addSheetRow(name: string, table: number, row: Omit<SheetRow, 'key'>): Promise<void> {
+    await wait()
+    const data = this.sheetData.get(name) ?? []
+    ;(data[table] ??= []).push({ ...row, key: `s-${Date.now()}` })
+    this.sheetData.set(name, data)
+  }
+
+  async editSheetRow(name: string, key: string, fields: Partial<Omit<SheetRow, 'key'>>): Promise<void> {
+    await wait()
+    for (const rows of this.sheetData.get(name) ?? []) {
+      const r = rows.find((x) => x.key === key)
+      if (r) Object.assign(r, fields)
+    }
+  }
+
+  async deleteSheetRow(name: string, key: string): Promise<void> {
+    await wait()
+    this.sheetData.set(name, (this.sheetData.get(name) ?? []).map((rows) => rows.filter((r) => r.key !== key)))
+  }
 
   async getKeepPdfCopies(): Promise<boolean> {
     return this.keepCopies

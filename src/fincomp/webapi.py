@@ -303,7 +303,140 @@ def old_accounts(files: list[dict]) -> dict:
     """An accounts workbook kept by hand (template layout), as files[0]:
     {"months": {title: rows}, "years": {title: year}} to place with
     prepare_rows/finish_rows."""
-    from .old_accounts import rows_from_workbook
+    from .old_accounts import rows_from_workbook, sheets_from_workbook, trips_from_workbook
 
-    months = rows_from_workbook(bytes(files[0]["data"]))
-    return {"months": months, "years": {t: parse_month_title(t)[0] for t in months}}
+    data = bytes(files[0]["data"])
+    months = rows_from_workbook(data)
+    trips = trips_from_workbook(data)
+    return {
+        "months": months, "years": {t: parse_month_title(t)[0] for t in months},
+        "trips": trips,  # [{name, currency, start, end, year, rate, rm, cash, received}]
+        "sheets": sheets_from_workbook(data, {t["name"] for t in trips}),  # [{name, year, counts, tables}]
+    }
+
+
+def trip_extra_ranges(trip_title: str) -> list[str]:
+    """The trip tab's currency spending (J-O) and money received (T-W)."""
+    from .accounts import CASH_COLS, RECEIVED_COLS
+
+    q = sheetplan.quote(trip_title)
+    return [f"{q}!{CASH_COLS[0]}4:{CASH_COLS[-1]}", f"{q}!{RECEIVED_COLS[0]}4:{RECEIVED_COLS[-1]}"]
+
+
+def trip_extras(trip_title: str, cash_now: list[list], received_now: list[list], cash: list[dict],
+                received: list[dict]) -> list[dict]:
+    """Rows for those two blocks that aren't there yet (same date, item and
+    amount), written under what's there. They have no keys: matching by
+    content keeps a second import from adding them twice."""
+    from .accounts import CASH_COLS, RECEIVED_COLS
+    from .sheetplan import as_amount, as_date, cell
+
+    def ident(d, item, amount):
+        day = as_date(d) if d not in ("", None) else None
+        return (day.isoformat() if day else "", str(item).strip(), as_amount(amount))
+
+    q = sheetplan.quote(trip_title)
+    out = []
+    for cols, now, rows, fields in ((CASH_COLS, cash_now or [], cash, ["date", "item", "category", "amount", "importance", "remarks"]),
+                                    (RECEIVED_COLS, received_now or [], received, ["date", "item", "amount", "remarks"])):
+        amount_i = fields.index("amount")
+        have = [ident(r[0] if r else "", r[1] if len(r) > 1 else "", r[amount_i] if len(r) > amount_i else 0) for r in now]
+        fresh = []
+        for r in rows:
+            k = ident(r.get("date", ""), r.get("item", ""), r.get("amount", 0))
+            if k in have:
+                have.remove(k)  # one existing row covers one imported row
+                continue
+            fresh.append([(as_date(r["date"]).isoformat() if r.get("date") else "") if f == "date" else
+                          (round(float(r.get(f) or 0), 2) if f == "amount" else cell(r.get(f, ""))) for f in fields])
+        if fresh:
+            start = 4 + len(now)
+            out.append({"range": f"{q}!{cols[0]}{start}:{cols[len(fields) - 1]}{start + len(fresh) - 1}", "values": fresh})
+    return out
+
+
+# ---- custom sheets (Sheets section) ------------------------------------------------
+# Use the Settings last given to use_settings(). Sheets are {"name", "year",
+# "counts", "tables": [{"name", "currency", "label"}]}.
+
+
+def _sheet(name: str):
+    sheet = next((s for s in _state["config"].sheets if s.name == name), None)
+    if sheet is None:
+        raise ValueError(f'No sheet called "{name}" in Settings › Sheets.')
+    return sheet
+
+
+def sheets_list() -> list[dict]:
+    return [asdict(s) for s in _state["config"].sheets]
+
+
+def sheets_rows(sheets: list[dict]) -> list[list]:
+    """Settings › Sheets body (no header) for this list of sheets."""
+    from .config import CustomSheet, CustomTable
+    from .custom import encode_tables
+
+    out = []
+    for s in sheets:
+        tables = [CustomTable(t["name"].strip(), (t.get("currency") or "RM").strip(), (t.get("label") or "Item").strip())
+                  for t in s.get("tables", []) if t.get("name", "").strip()]
+        sheet = CustomSheet(s["name"].strip(), int(s["year"]), s.get("counts", ""), tables)
+        out.append([sheet.name, sheet.year, sheet.counts, encode_tables(sheet.tables)])
+    return out
+
+
+def custom_ranges(name: str) -> list[str]:
+    from . import custom
+
+    return custom.data_ranges(_sheet(name))
+
+
+def custom_rows(name: str, values: dict) -> list[dict]:
+    from . import custom
+
+    return custom.rows(_sheet(name), values)
+
+
+def custom_add(name: str, table: int, existing: list[list], fields: dict) -> list[dict]:
+    from . import custom
+
+    return custom.append(_sheet(name), int(table), existing or [], fields)
+
+
+def custom_add_many(name: str, table: int, existing: list[list], rows: list[dict]) -> list[dict]:
+    from . import custom
+
+    return custom.append_many(_sheet(name), int(table), existing or [], rows)
+
+
+def custom_edit(name: str, values: dict, key: str, fields: dict) -> list[dict]:
+    from . import custom
+
+    return custom.edit(_sheet(name), values, key, fields)
+
+
+def custom_remove(name: str, sheet_id: int, values: dict, key: str) -> list[dict]:
+    from . import custom
+
+    return custom.remove(_sheet(name), int(sheet_id), values, key)
+
+
+def custom_setup(name: str, sheet_id: int) -> dict:
+    """Headers, totals and formats of a custom sheet's tab (made or changed)."""
+    from . import custom
+
+    sheet = _sheet(name)
+    q = sheetplan.quote(sheet.name)
+    return {"data": [{"range": f"{q}!{c}", "values": [[v]]} for c, v in custom.layout(sheet).items()],
+            "requests": custom.formats(int(sheet_id), sheet)}
+
+
+def year_summary(year: int, titles: list[str]) -> list[dict]:
+    """The Year End Summary cells, e.g. after a custom sheet is added."""
+    from .accounts import YEAR_SUMMARY, year_summary_cells
+    from .custom import summary_refs
+
+    config = _state["config"]
+    months, trips = sheetplan.month_and_trip_tabs(list(titles), int(year), config)
+    cells = year_summary_cells(months, trips, *summary_refs(config.sheets, set(titles), int(year)))
+    return [{"range": f"{sheetplan.quote(YEAR_SUMMARY)}!{c}", "values": [[v]]} for c, v in cells.items()]

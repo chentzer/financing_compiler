@@ -481,12 +481,14 @@ def month_links(month_titles: list[str], trips: list[Trip], trip_titles: set[str
     return out
 
 
-def year_summary_cells(month_titles: list[str], trip_titles: list[str]) -> dict[str, object]:
-    if not month_titles:
+def year_summary_cells(month_titles: list[str], trip_titles: list[str], extra_earnings: list[str] = (),
+                       extra_spending: list[str] = ()) -> dict[str, object]:
+    """extra_*: cells to add (custom sheets' RM totals, e.g. ang pao)."""
+    if not month_titles and not extra_earnings and not extra_spending:
         return {}
     months = sorted(month_titles, key=parse_month_title)
-    earnings = "+".join(f"{quote(t)}!{EARNINGS_CELL}" for t in months)
-    spending = "+".join(f"{quote(t)}!{SPENDINGS_CELL}" for t in months)
+    earnings = "+".join([f"{quote(t)}!{EARNINGS_CELL}" for t in months] + list(extra_earnings)) or "0"
+    spending = "+".join([f"{quote(t)}!{SPENDINGS_CELL}" for t in months] + list(extra_spending)) or "0"
     trips = "+".join(f"{quote(t)}!{TRIP_TOTAL_CELL}" for t in trip_titles) or "0"
     return {
         "A1": "Total Earnings", "B1": f"={earnings}",
