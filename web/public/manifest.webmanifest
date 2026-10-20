@@ -1,6 +1,6 @@
 {
-  "name": "fincomp",
-  "short_name": "fincomp",
+  "name": "FinMerge",
+  "short_name": "FinMerge",
   "description": "Your bank and e-wallet statements, compiled into your monthly accounts in Google Sheets.",
   "start_url": "./",
   "scope": "./",

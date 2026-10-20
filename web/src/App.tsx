@@ -10,7 +10,7 @@ import { Settings } from './screens/Settings'
 import { Upload } from './screens/Upload'
 
 const TITLES: Record<Route['name'], string> = {
-  home: 'fincomp',
+  home: 'FinMerge',
   upload: 'Upload',
   cards: 'To Update',
   month: 'Month',
@@ -63,7 +63,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
       <aside className="side">
         <div className="brand">
           <img src="./icon.svg" alt="" width={28} height={28} />
-          fincomp
+          FinMerge
         </div>
         <NavLinks items={nav} current={route.name} />
       </aside>
@@ -121,7 +121,7 @@ function SignIn({ auth, onSignedIn }: { auth: Auth; onSignedIn(u: User): void })
     <div className="signin">
       <div className="card signin-card">
         <img src="./icon.svg" alt="" width={56} height={56} />
-        <h1>fincomp</h1>
+        <h1>FinMerge</h1>
         <p className="muted">
           Your bank and e-wallet statements, compiled into your monthly accounts in Google Sheets. Everything runs on
           this device and goes only to your own Drive.

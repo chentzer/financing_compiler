@@ -1,4 +1,10 @@
-# financing_compiler
+# financing_compiler (the app is called **FinMerge**)
+
+The app's name is FinMerge everywhere the user sees it (site title,
+header, Android app name). Code, the Python package/CLI (`fincomp`), the
+Android package id `com.chentzer.fincomp`, and the Drive file names
+("fincomp Settings", the fincomp folder) keep the old name on purpose:
+renaming those would lose the user's data or the Google sign-in setup.
 
 `fincomp` reads statements from several Malaysian banks and e-wallets and
 writes monthly accounts to the user's Google Sheets. It runs two ways from

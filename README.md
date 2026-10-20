@@ -1,4 +1,6 @@
-# financing_compiler
+# FinMerge
+
+(Repo `financing_compiler`; the Python package and CLI are `fincomp`.)
 
 Turns Malaysian bank and e-wallet statements (AEON Bank, AEON Credit, GX,
 Maybank, Ryt, Touch 'n Go) into monthly accounts in your own Google Sheets.

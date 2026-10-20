@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">fincomp</string>
-    <string name="title_activity_main">fincomp</string>
+    <string name="app_name">FinMerge</string>
+    <string name="title_activity_main">FinMerge</string>
     <string name="package_name">com.chentzer.fincomp</string>
     <string name="custom_url_scheme">com.chentzer.fincomp</string>
 </resources>

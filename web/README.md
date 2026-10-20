@@ -1,4 +1,4 @@
-# fincomp web + Android app
+# FinMerge web + Android app
 
 The phone/desktop front end for fincomp: React + TypeScript + Vite, wrapped
 by Capacitor for Android. No server: the finished app runs the Python
