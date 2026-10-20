@@ -97,6 +97,12 @@ def test_cards_edit_and_not_mine():
         (2, False, True, "k1"), (3, True, False, "k2"),
     ]
     assert cards[1]["date"] == "2026-09-16"  # Sheets date serial -> ISO
+    # A tab name Sheets had turned into a date comes back as the name; new ones are written as text.
+    (old,) = webapi.cards([[46237, 22.0, "From Bob", "BOB LIM", "Transfer", "what it was for", 46235, "k3"]])
+    assert old["tab"] == "August 2026"
+    from fincomp.sheetplan import text_value
+    assert [text_value(v) for v in ("August 2026", "Lunch", "3/8", "12345", "7-Eleven", "Sep. 2026")] == [
+        "'August 2026", "Lunch", "'3/8", "'12345", "7-Eleven", "'Sep. 2026"]
 
     month = {
         "'September 2026'!A3:H": [["2026-09-05", "Lunch", "", 16.4, "", "Bank A", "", "k1"]],

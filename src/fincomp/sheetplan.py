@@ -20,6 +20,8 @@ doesn't manage are never moved or written.
 
 from __future__ import annotations
 
+import calendar
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -72,9 +74,15 @@ class Finished:
 # ---- helpers ----------------------------------------------------------------
 
 
+# Text that USER_ENTERED would turn into a date or number: "August 2026"
+# (a tab name), "3/8", "12345", "1,200.50", "10%".
+LOOKS_LIKE_VALUE = re.compile(r"[A-Za-z]{3,9}\.? \d{4}|\d{1,4}[/.-]\d{1,2}([/.-]\d{1,4})?|[\d,]+(\.\d+)?%?")
+
+
 def text_value(v):
-    # USER_ENTERED would turn "+6012..." or "=..." into numbers/formulas.
-    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@"):
+    # USER_ENTERED would turn "+6012..." or "=..." into numbers/formulas,
+    # and "August 2026" into a date.
+    if isinstance(v, str) and (v[:1] in ("=", "+", "-", "@") or LOOKS_LIKE_VALUE.fullmatch(v.strip())):
         return "'" + v
     return v
 
@@ -554,9 +562,17 @@ def cards_from_values(rows: list[list]) -> list[dict]:
             "row": 2 + i, "date": (d := as_date(r[0])) and d.isoformat(), "amount": as_amount(_get(r, 1)),
             "who": _get(r, 2), "statement": _get(r, 3), "recordedAs": _get(r, 4),
             "needsPurpose": "what it was for" in needs, "needsCategory": "Category" in needs,
-            "tab": _get(r, 6), "key": _get(r, 7),
+            "tab": _tab_title(r[6] if len(r) > 6 else ""), "key": _get(r, 7),
         })
     return cards
+
+
+def _tab_title(v) -> str:
+    """The Tab column. Sheets may have turned "August 2026" into a date
+    (written before tab names were kept as text): turn it back."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and (d := as_date(v)):
+        return f"{calendar.month_name[d.month]} {d.year}"
+    return str(v or "")
 
 
 def _get(r: list, i: int) -> str:
@@ -725,7 +741,8 @@ def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int])
 def cash_row(values: list[list], tab_title: str, fields: dict) -> list[dict]:
     """A trip's spending in its own currency (J-O): written under the last one."""
     row = TRIP_FIRST_ROW + len(values)
-    vals = [fields.get("date", ""), fields.get("item", ""), fields.get("category", ""), fields.get("amount", ""),
+    day = as_date(fields.get("date", ""))  # a real date, not the text "2026-11-03"
+    vals = [day or "", fields.get("item", ""), fields.get("category", ""), fields.get("amount", ""),
             fields.get("importance", ""), fields.get("remarks", "")]
     return [{"range": f"{quote(tab_title)}!{CASH_COLS[0]}{row}:{CASH_COLS[-1]}{row}",
              "values": [[cell(v) for v in vals]]}]
