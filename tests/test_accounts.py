@@ -174,6 +174,10 @@ def test_local_xlsx(tmp_path: Path):
 class FakeWS:
     def __init__(self, title, id_):
         self.title, self.id = title, id_
+        self.col_count = 26
+
+    def resize(self, cols):
+        self.col_count = cols
 
 
 class FakeSheet:

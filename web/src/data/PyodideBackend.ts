@@ -64,7 +64,7 @@ const LATER_KEY = 'fincomp.later'
 
 interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; ok: boolean }
 interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number }
-interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[] }
+interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[]; widths?: Record<string, number> }
 interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already: number; toUpdate: number }
 interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; tab: string; key: string }
 interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item: string; category: string; amount: number; importance: string; source: string; remarks: string; key: string }
@@ -178,7 +178,9 @@ export class PyodideBackend implements Backend {
         const tv = await this.g.read(b.id, tripReads, 'FORMULA')
         const fin = await py<Plan>('upgrade_trips', [b.year, titles, ids, plan.trips,
           Object.fromEntries(tripReads.map((r, i) => [r, tv[i]]))])
-        await this.run(b.id, fin)
+        // Requests first: they widen the tab the clear and the new blocks need.
+        await this.run(b.id, { clear: [], data: [], requests: fin.requests })
+        await this.run(b.id, { ...fin, requests: [] })
       }
     }
   }
@@ -692,8 +694,13 @@ export class PyodideBackend implements Backend {
     }
     let tabs = await this.g.tabs(book.id)
     const prep = await prepare(tabs.map((t) => t.title), created)
+    // Trip tabs made before they had this many currencies get wider first.
+    const widen = tabs.filter((t) => (prep.widths?.[t.title] ?? 0) > (t.gridProperties?.columnCount ?? 0))
     const changed = prep.add.length + prep.delete.length > 0
     await this.g.batch(book.id, [
+      ...widen.map((t) => ({ updateSheetProperties: {
+        properties: { sheetId: t.sheetId, gridProperties: { columnCount: prep.widths![t.title] } },
+        fields: 'gridProperties.columnCount' } })),
       ...prep.add.map((a) => ({
         addSheet: { properties: { title: a.title, index: a.index, gridProperties: { rowCount: a.rows, columnCount: a.cols } } },
       })),

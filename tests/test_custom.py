@@ -153,3 +153,15 @@ def test_custom_tab_imported_counted_as_earnings():
     assert (sgd["currency"], [r["item"] for r in sgd["rows"]]) == ("SGD", ["SG cousin"])
     s = CustomSheet("Chinese New Year", 2023, "earnings", [CustomTable(t["name"], t["currency"], t["label"]) for t in sheet["tables"]])
     assert custom.append_many(s, 0, [[44948, "Auntie Mei", 50, "", rm["rows"][0]["key"]]], rm["rows"])[0]["values"][0][1] == "Uncle Bob"
+
+
+def test_trip_tabs_wide_enough_for_their_currencies():
+    from fincomp import sheetplan
+    from fincomp.config import Trip
+    trip = Trip("Japan Trip", datetime(2023, 11, 9).date(), datetime(2023, 11, 12).date(),
+                currency="JPY", rate=0.032, extra=[("SGD", 3.4)])
+    webapi.use_settings(S.tabs_from_config(Config(trips=[trip])))
+    out = webapi.prepare_rows(2023, ["Year End Summary"], [], "Japan Trip")
+    (add,) = [a for a in out["add"] if a["title"] == "Japan Trip"]
+    # S.. for JPY, Z.. for SGD, then the received block: past Z
+    assert add["cols"] == out["widths"]["Japan Trip"] == sheetplan.trip_cols(trip) > 26

@@ -101,6 +101,9 @@ def _sync_year(gc, year: int, tabs: list[Tab], config: Config, answers: dict[str
         sheets[t.title] = sh.add_worksheet(t.title, rows=t.rows, cols=t.cols, index=t.index)
     for t in prepared.delete:
         sh.del_worksheet(sheets.pop(t))
+    for t, cols in prepared.widths.items():
+        if sheets[t].col_count < cols:
+            sheets[t].resize(cols=cols)
 
     got = sh.values_batch_get(prepared.reads, params={"valueRenderOption": "FORMULA"}).get("valueRanges", [])
     values = {rng: vr.get("values", []) for rng, vr in zip(prepared.reads, got)}
@@ -137,10 +140,10 @@ def _upgrade_columns(sh, year: int, tabs: list[Tab], config: Config) -> None:
         got = sh.values_batch_get([rng], params={"valueRenderOption": "FORMULA"}).get("valueRanges", [{}])
         clear, data, requests = sheetplan.trip_rebuild(trip, version, got[0].get("values", []),
                                                        {r.key: r for r in rows}, config, ids[title])
+        sh.batch_update({"requests": requests})  # first: widens the tab
         for c in clear:
             sh.values_clear(c)
         sh.values_batch_update({"valueInputOption": "USER_ENTERED", "data": data})
-        sh.batch_update({"requests": requests})
     if not old:
         return
     sh.batch_update({"requests": sheetplan.insert_columns(ids, old)})

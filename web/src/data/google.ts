@@ -15,6 +15,7 @@ export interface SheetTab {
   title: string
   sheetId: number
   index: number
+  gridProperties?: { columnCount?: number }
 }
 export type Render = 'FORMULA' | 'UNFORMATTED_VALUE' | 'FORMATTED_VALUE'
 
@@ -155,7 +156,7 @@ export class Google {
 
   async tabs(id: string): Promise<SheetTab[]> {
     const r = await this.call<{ sheets: { properties: SheetTab }[] }>(
-      `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index)`,
+      `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index,gridProperties.columnCount)`,
     )
     return r.sheets.map((s) => s.properties).sort((a, b) => a.index - b.index)
   }

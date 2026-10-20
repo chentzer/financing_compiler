@@ -71,6 +71,7 @@ def prepare_year(year: int, titles: list[str], created: bool = False) -> dict:
         "add": [asdict(t) for t in prepared.add],
         "delete": prepared.delete,
         "reads": prepared.reads,
+        "widths": prepared.widths,
     }
 
 
@@ -273,7 +274,8 @@ def prepare_rows(year: int, titles: list[str], rows: list[dict], target: str, cr
     _state["placed"] = tabs
     prepared = sheetplan.prepare(int(year), list(titles), tabs, config, created)
     _state.setdefault("prepared", {})[int(year)] = prepared
-    return {"add": [asdict(t) for t in prepared.add], "delete": prepared.delete, "reads": prepared.reads}
+    return {"add": [asdict(t) for t in prepared.add], "delete": prepared.delete, "reads": prepared.reads,
+            "widths": prepared.widths}
 
 
 def finish_rows(year: int, sheet_ids: dict, values: dict) -> dict:

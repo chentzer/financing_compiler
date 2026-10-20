@@ -57,6 +57,7 @@ class Prepared:
     order: list[str]  # tab titles after that
     new_tabs: set[str]  # tabs that need their layout written
     reads: list[str]  # ranges to read with valueRenderOption=FORMULA
+    widths: dict[str, int] = field(default_factory=dict)  # columns each trip tab needs (one block per currency)
 
 
 @dataclass
@@ -162,7 +163,8 @@ def prepare(year: int, titles: list[str], tabs: list[Tab], config: Config, creat
     for tab in tabs:
         if tab.title not in order:
             i = insert_index(order, tab.order, config)
-            add.append(TabToAdd(tab.title, i, TAB_ROWS, TAB_COLS))
+            cols = trip_cols(tab.trip) if tab.kind == "trip" and tab.trip else TAB_COLS
+            add.append(TabToAdd(tab.title, i, TAB_ROWS, cols))
             order.insert(i, tab.title)
             new_tabs.add(tab.title)
     if YEAR_SUMMARY not in order:
@@ -175,7 +177,14 @@ def prepare(year: int, titles: list[str], tabs: list[Tab], config: Config, creat
     for p in placeholder:
         order.remove(p)
     months, trips = month_and_trip_tabs(order, year, config)
-    return Prepared(add, placeholder, order, new_tabs, data_ranges(months, trips))
+    widths = {t.name: trip_cols(t) for t in config.trips if t.name in order}
+    return Prepared(add, placeholder, order, new_tabs, data_ranges(months, trips), widths)
+
+
+def trip_cols(trip) -> int:
+    """Columns a trip tab needs: more than a new tab's 26 once it has a
+    currency block or two (each 6 wide, then the received block)."""
+    return max(TAB_COLS, trip_width(trip) + 2)
 
 
 # ---- step 2 ---------------------------------------------------------------------
