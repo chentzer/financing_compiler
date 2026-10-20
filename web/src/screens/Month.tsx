@@ -60,8 +60,11 @@ function MonthBody({ year, month }: { year: number; month: number }) {
     <div className="month-grid">
       <Summary s={summary} />
       <div className="stack">
-        <RowList title="Spendings" rows={spend} onTap={setEditing} />
-        <RowList title="Earnings" rows={earn} onTap={setEditing} />
+        {/* Side by side when there's room, as in the sheet; stacked on a phone. */}
+        <div className="lists-pair">
+          <RowList title="Spendings" rows={spend} onTap={setEditing} />
+          <RowList title="Earnings" rows={earn} onTap={setEditing} />
+        </div>
         {trip.length > 0 && <RowList title="Trips" rows={trip} onTap={setEditing} />}
       </div>
       {editing && <EditRow row={editing} onClose={() => setEditing(undefined)} />}
