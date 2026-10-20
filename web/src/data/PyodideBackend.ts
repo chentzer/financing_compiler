@@ -7,7 +7,6 @@
  *                       Removed / Ledger (hidden: every parsed transaction)
  *   "<year> Accounts"   month tabs, trip tabs, To Update, Year End Summary
  *   App Data folder     passwords.vault.json (statement passwords, encrypted with your PIN)
- *   fincomp/statements  copies of the uploaded PDFs
  *
  * What to write is decided in Python (sheetplan.py via webapi.py); this
  * file only moves data between Pyodide and the Google APIs.
@@ -308,7 +307,6 @@ export class PyodideBackend implements Backend {
       if (changed && this.unlocked) await this.savePasswords(learned)
       await this.writeLedger(settings.id, out.ledger)
       for (const year of out.years) await this.syncYear(year)
-      await this.keepCopies(files.filter((f) => okFiles.some((o) => o.name === f.name)))
     }
 
     const tail = okFiles.length
@@ -363,16 +361,6 @@ export class PyodideBackend implements Backend {
     await this.g.clear(book.id, fin.clear)
     await this.g.write(book.id, fin.data, 'USER_ENTERED')
     await this.g.batch(book.id, fin.requests)
-  }
-
-  /** Copies of the PDFs in Drive › fincomp › statements (best effort). */
-  private async keepCopies(files: UploadFile[]): Promise<void> {
-    try {
-      const folder = await this.g.folder('statements', await this.g.folder('fincomp'))
-      for (const f of files) await this.g.putFile(folder, f.name, 'application/pdf', f.data)
-    } catch {
-      /* the accounts are already written; a missing copy isn't worth failing over */
-    }
   }
 
   // ---- categories ---------------------------------------------------------------------
