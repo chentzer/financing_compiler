@@ -91,7 +91,7 @@ function CardForm({ card, onLater }: { card: Card; onLater(): void }) {
   const direction = card.counterparty ? (isSpend ? 'to' : 'from') : 'at'
   const complete = (!needsPurpose || item.trim() !== '') && (!needsCategory || category !== '')
 
-  async function act(what: 'save' | 'later' | 'notmine') {
+  async function act(what: 'save' | 'later' | 'notmine' | 'skip') {
     setBusy(true)
     setError(undefined)
     try {
@@ -103,6 +103,9 @@ function CardForm({ card, onLater }: { card: Card; onLater(): void }) {
           sameForEvery: same,
         })
         toast(same ? `Saved, and added a rule for ${who}` : 'Saved')
+      } else if (what === 'skip') {
+        await backend.keepAsIs(card.key)
+        toast('Skipped: kept as recorded')
       } else if (what === 'later') {
         await backend.skipCard(card.key)
         onLater()
@@ -178,7 +181,12 @@ function CardForm({ card, onLater }: { card: Card; onLater(): void }) {
         <button type="button" className="btn ghost danger" disabled={busy} onClick={() => act('notmine')}>
           Not mine
         </button>
-        <button type="button" className="btn" disabled={busy} onClick={() => act('later')}>
+        <button type="button" className="btn" disabled={busy} onClick={() => act('skip')}
+          title="Keep the row as recorded and don't ask again">
+          Skip
+        </button>
+        <button type="button" className="btn" disabled={busy} onClick={() => act('later')}
+          title="Come back to this card next time">
           Later
         </button>
         <button className="btn primary" disabled={busy || !complete}>

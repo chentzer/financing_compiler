@@ -128,6 +128,12 @@ def remove_row(key: str, values: dict, sheet_ids: dict, card: dict | None = None
     }
 
 
+def reviewed_row(key: str, card: dict | None = None) -> list:
+    """"Skip": the Settings › Reviewed row to append, so the card never comes back."""
+    card = card or {}
+    return S.removed_row(key, card.get("date") or "", card.get("amount") or 0, card.get("statement") or "")
+
+
 def remove_card(to_update_sheet_id: int, row: int) -> dict:
     return sheetplan.remove_card_request(int(to_update_sheet_id), int(row))
 
@@ -168,6 +174,7 @@ def settings_template() -> dict:
     """Tabs for a brand-new Settings sheet (defaults), plus which to hide."""
     tabs = S.tabs_from_config(_config({}, {}))
     tabs[S.REMOVED] = [S.HEADERS[S.REMOVED]]
+    tabs[S.REVIEWED] = [S.HEADERS[S.REVIEWED]]
     tabs[S.LEDGER] = [S.HEADERS[S.LEDGER]]
     return {"title": S.SETTINGS_TITLE, "tabs": tabs, "hidden": sorted(S.HIDDEN), "passwordsFile": S.PASSWORDS_FILE}
 

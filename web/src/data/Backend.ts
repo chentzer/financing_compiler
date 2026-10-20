@@ -208,6 +208,8 @@ export interface Backend {
   /** Open To Update cards, oldest first. */
   listCards(): Promise<Card[]>
   saveCard(key: string, answer: CardAnswer): Promise<void>
+  /** "Skip": keep the row as recorded and never ask about it again. */
+  keepAsIs(key: string): Promise<void>
   /** "Later": leave it in To Update. */
   skipCard(key: string): Promise<void>
   /** "Not mine": remove the row from its block. */

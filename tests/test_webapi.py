@@ -165,3 +165,15 @@ def test_ledger_round_trip_keeps_text():
     t = tx(3, -9.5, "+6012 TOPUP = promo", note="x", file="a.pdf", internal=True)
     (back,) = S.ledger_from_rows(S.ledger_rows([t]))
     assert back == t and back.file == "a.pdf"
+
+
+def test_skipped_cards_stay_closed_but_the_row_stays():
+    first = webapi.compile_upload([{"name": "sep.pdf", "data": b"x"}], settings_values(), {}, [])
+    amy = next(r for r in webapi._state["compiled"].rows if r.counterparty == "AMY WONG")
+    assert amy.needs and first["toUpdate"] == 2
+    tabs = settings_values()
+    tabs[S.REVIEWED] = [S.HEADERS[S.REVIEWED], webapi.reviewed_row(amy.key, {"date": "2026-09-16", "amount": 107.0})]
+    again = webapi.compile_upload([], tabs, {}, first["ledger"])
+    kept = next(r for r in webapi._state["compiled"].rows if r.key == amy.key)
+    assert kept.needs == () and kept.item == "QR payment"  # still recorded, as it was
+    assert again["toUpdate"] == 1

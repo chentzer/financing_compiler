@@ -54,7 +54,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
   'October', 'November', 'December']
 const SETTINGS_RANGES: Record<string, string> = {
   Rules: "'Rules'!A1:H", People: "'People'!A1:B", Trips: "'Trips'!A1:H", 'Own payees': "'Own payees'!A1:A",
-  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D",
+  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D",
 }
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
@@ -182,7 +182,7 @@ export class PyodideBackend implements Backend {
   private async useSettings(force = false): Promise<void> {
     if (this.configured && !force) return
     const id = await this.settingsBook()
-    const names = Object.keys(SETTINGS_RANGES)
+    const names = await this.settingsTabs(id)
     const got = await this.g.read(id, names.map((n) => SETTINGS_RANGES[n]), 'UNFORMATTED_VALUE')
     await py('use_settings', [Object.fromEntries(names.map((n, i) => [n, got[i]]))])
     this.configured = true
@@ -208,7 +208,7 @@ export class PyodideBackend implements Backend {
 
   private async readSettings(): Promise<{ id: string; values: Record<string, Values>; ledger: Values }> {
     const id = await this.settingsBook()
-    const names = Object.keys(SETTINGS_RANGES)
+    const names = await this.settingsTabs(id)
     const got = await this.g.read(id, [...names.map((n) => SETTINGS_RANGES[n]), LEDGER_RANGE], 'UNFORMATTED_VALUE')
     const values = Object.fromEntries(names.map((n, i) => [n, got[i]]))
     return { id, values, ledger: got[names.length] }
@@ -347,6 +347,26 @@ export class PyodideBackend implements Backend {
         await this.removeCard(other.book, k)
       }
     }
+  }
+
+  /** Settings tabs to read: a Settings sheet made before a tab existed (Reviewed) just lacks it. */
+  private async settingsTabs(id: string): Promise<string[]> {
+    const have = new Set((await this.g.tabs(id)).map((t) => t.title))
+    return Object.keys(SETTINGS_RANGES).filter((n) => have.has(n))
+  }
+
+  async keepAsIs(key: string): Promise<void> {
+    const at = this.cardsAt.get(key)
+    if (!at) throw new Error('That card was already closed. Reload to see what is left.')
+    const id = await this.settingsBook()
+    if (!(await this.g.tabs(id)).some((t) => t.title === 'Reviewed')) {
+      await this.g.batch(id, [{ addSheet: { properties: { title: 'Reviewed', gridProperties: { rowCount: 500, columnCount: 4 } } } }])
+      await this.g.write(id, [{ range: "'Reviewed'!A1", values: [['Key', 'Date', 'Amount (RM)', 'Statement']] }], 'RAW')
+    }
+    // Remembered first, so a later upload doesn't open the card again.
+    await this.g.append(id, "'Reviewed'!A:D", [await py<unknown[]>('reviewed_row', [key, at.card])])
+    await this.removeCard(at.book, key)
+    writeLater(readLater().filter((k) => k !== key))
   }
 
   async skipCard(key: string): Promise<void> {

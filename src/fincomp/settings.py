@@ -26,8 +26,9 @@ TRIPS = "Trips"
 OWN_PAYEES = "Own payees"
 LISTS = "Lists"
 REMOVED = "Removed"
+REVIEWED = "Reviewed"  # cards you skipped: rows kept as recorded
 LEDGER = "Ledger"
-TABS = [RULES, PEOPLE, TRIPS, OWN_PAYEES, LISTS, REMOVED, LEDGER]
+TABS = [RULES, PEOPLE, TRIPS, OWN_PAYEES, LISTS, REMOVED, REVIEWED, LEDGER]
 HIDDEN = {LEDGER}
 
 HEADERS = {
@@ -38,6 +39,7 @@ HEADERS = {
     OWN_PAYEES: ["Payee (your own money, e.g. your credit card)"],
     LISTS: ["Categories", "Importance"],
     REMOVED: ["Key", "Date", "Amount (RM)", "Statement"],
+    REVIEWED: ["Key", "Date", "Amount (RM)", "Statement"],
     LEDGER: Transaction.columns(),
 }
 SEP = " | "
@@ -100,6 +102,7 @@ def config_from_tabs(values: dict[str, list[list]], passwords: dict[str, str] | 
     if imps := [_s(r, 1) for r in lists if _s(r, 1)]:
         config.importance = imps
     config.removed = {_s(r, 0) for r in _body(values, REMOVED) if _s(r, 0)}
+    config.reviewed = {_s(r, 0) for r in _body(values, REVIEWED) if _s(r, 0)}
     if passwords is not None:
         config.passwords = dict(passwords)
     return config

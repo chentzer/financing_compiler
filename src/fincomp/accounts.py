@@ -219,7 +219,7 @@ def build_rows(
         kind = "earn" if t.amount > 0 else "spend"
         category = category if category in config.categories else ""
         needs: list[str] = []
-        if not answer.get("reviewed"):  # you've seen its card: don't ask again
+        if not answer.get("reviewed") and key not in config.reviewed:  # you've seen its card: don't ask again
             if t.counterparty and not t.purpose and not rule.get("item") and not answer.get("item"):
                 needs.append("purpose")
             if kind == "spend" and not category:

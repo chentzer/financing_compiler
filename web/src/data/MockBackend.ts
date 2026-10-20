@@ -207,6 +207,12 @@ export class MockBackend implements Backend {
     }
   }
 
+  async keepAsIs(key: string): Promise<void> {
+    await wait()
+    this.s.cards.delete(key)
+    this.s.later = this.s.later.filter((k) => k !== key)
+  }
+
   async skipCard(key: string): Promise<void> {
     await wait(100)
     this.s.later = [...this.s.later.filter((k) => k !== key), key]

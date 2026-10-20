@@ -85,6 +85,8 @@ class Config:
     own_payees: list[str] = field(default_factory=lambda: ["AEON CREDIT SERVICE"])
     # Row keys the user marked "not mine" in the app (Settings › Removed).
     removed: set[str] = field(default_factory=set)
+    # Row keys whose card you skipped: kept as recorded, never asked about again.
+    reviewed: set[str] = field(default_factory=set)
     # How people show in Remarks: {"TAN MEI LING": "Mei Ling"}. Unlisted names
     # are shortened automatically.
     people: dict[str, str] = field(default_factory=dict)
