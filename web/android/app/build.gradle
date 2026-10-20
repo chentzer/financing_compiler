@@ -40,6 +40,14 @@ android {
     }
 }
 
+// The sign-in plugin pulls androidx.browser 1.9, which needs compileSdk 36 / a newer
+// Android Gradle plugin than Capacitor 7 ships; 1.8 works the same for us.
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.browser:browser:1.8.0'
+    }
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
