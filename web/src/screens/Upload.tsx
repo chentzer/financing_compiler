@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { errorText, useData } from '../app/context'
+import { errorText, useData, useLoad } from '../app/context'
 import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
 import { STATEMENT_SOURCES, type UploadFile, type UploadResult } from '../data/Backend'
@@ -26,6 +26,19 @@ function UploadInner() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [dragging, setDragging] = useState(false)
+  const keep = useLoad((b) => b.getKeepPdfCopies())
+  const [keepOn, setKeepOn] = useState<boolean>()
+  const keepCopies = keepOn ?? keep.data ?? false
+
+  async function toggleKeep(on: boolean) {
+    setKeepOn(on)
+    try {
+      await backend.setKeepPdfCopies(on)
+    } catch (e) {
+      setKeepOn(!on)
+      setError(errorText(e))
+    }
+  }
 
   /** Each pick adds to the list (statements often sit in different folders);
    * picking the same file again replaces it. */
@@ -85,6 +98,19 @@ function UploadInner() {
           different folders (or drop them here). They're read on this device; only the results go to your Google
           Drive. Saved passwords are used automatically.
         </p>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={keepCopies}
+            onChange={(e) => toggleKeep(e.target.checked)}
+            disabled={busy || keep.data === undefined}
+          />
+          <span className="switch" aria-hidden />
+          <span>
+            Keep a copy of each PDF in Drive › fincomp › statements
+            <span className="muted small"> · off: the PDF is discarded after reading</span>
+          </span>
+        </label>
         <input
           ref={input}
           type="file"

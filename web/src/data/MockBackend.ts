@@ -48,6 +48,16 @@ const ENCRYPTED = new Set(['tng', 'aeon_credit', 'maybank_cc'])
 export class MockBackend implements Backend {
   private s: MockState = initialState()
   private cats: string[] = [...CATEGORIES]
+  private keepCopies = false
+
+  async getKeepPdfCopies(): Promise<boolean> {
+    return this.keepCopies
+  }
+
+  async setKeepPdfCopies(on: boolean): Promise<void> {
+    await wait(100)
+    this.keepCopies = on
+  }
 
   async listCategories(): Promise<string[]> {
     await wait(50)

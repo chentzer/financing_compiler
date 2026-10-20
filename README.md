@@ -30,9 +30,11 @@ Also in your Drive:
 - **Statement passwords**, saved in the app's private App Data folder,
   which other apps can't open and isn't shown in your Drive file list.
 
-The PDFs themselves are not kept: they're read on your device and
-discarded once the upload is done. Only the transactions read from them
-are saved (in the Ledger above).
+The PDFs themselves are read on your device and discarded once the upload
+is done; only the transactions read from them are saved (in the Ledger
+above). Turn on "Keep a copy of each PDF" on the Upload screen to also keep
+them in **Drive › fincomp › statements** (a setting shared by all your
+devices).
 
 ### One-time Google setup (for whoever runs the site)
 

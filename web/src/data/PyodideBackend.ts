@@ -6,7 +6,9 @@
  *   "fincomp Settings"  Rules / People / Trips / Own payees / Lists /
  *                       Removed / Ledger (hidden: every parsed transaction)
  *   "<year> Accounts"   month tabs, trip tabs, To Update, Year End Summary
- *   App Data folder     passwords.vault.json (statement passwords, encrypted with your PIN)
+ *   App Data folder     passwords.vault.json (statement passwords, encrypted with your PIN),
+ *                       prefs.json (e.g. whether to keep PDF copies)
+ *   fincomp/statements  copies of the uploaded PDFs, only if you turned that on
  *
  * What to write is decided in Python (sheetplan.py via webapi.py); this
  * file only moves data between Pyodide and the Google APIs.
@@ -39,6 +41,7 @@ const SETTINGS_TITLE = 'fincomp Settings'
 // Encrypted passwords (vault.ts); the old readable file is converted once, then deleted.
 const VAULT_FILE = 'passwords.vault.json'
 const LEGACY_PASSWORDS_FILE = 'passwords.json'
+const PREFS_FILE = 'prefs.json'
 const TO_UPDATE = 'To Update'
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
@@ -307,6 +310,7 @@ export class PyodideBackend implements Backend {
       if (changed && this.unlocked) await this.savePasswords(learned)
       await this.writeLedger(settings.id, out.ledger)
       for (const year of out.years) await this.syncYear(year)
+      if (await this.getKeepPdfCopies()) await this.keepCopies(files.filter((f) => okFiles.some((o) => o.name === f.name)))
     }
 
     const tail = okFiles.length
@@ -361,6 +365,25 @@ export class PyodideBackend implements Backend {
     await this.g.clear(book.id, fin.clear)
     await this.g.write(book.id, fin.data, 'USER_ENTERED')
     await this.g.batch(book.id, fin.requests)
+  }
+
+  /** Copies of the PDFs in Drive › fincomp › statements (best effort). */
+  private async keepCopies(files: UploadFile[]): Promise<void> {
+    try {
+      const folder = await this.g.folder('statements', await this.g.folder('fincomp'))
+      for (const f of files) await this.g.putFile(folder, f.name, 'application/pdf', f.data)
+    } catch {
+      /* the accounts are already written; a missing copy isn't worth failing over */
+    }
+  }
+
+  async getKeepPdfCopies(): Promise<boolean> {
+    return !!(await this.g.readAppData<{ keepPdfCopies?: boolean }>(PREFS_FILE, {})).keepPdfCopies
+  }
+
+  async setKeepPdfCopies(on: boolean): Promise<void> {
+    const prefs = await this.g.readAppData<Record<string, unknown>>(PREFS_FILE, {})
+    await this.g.writeAppData(PREFS_FILE, { ...prefs, keepPdfCopies: on })
   }
 
   // ---- categories ---------------------------------------------------------------------

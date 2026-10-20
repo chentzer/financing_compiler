@@ -8,6 +8,7 @@ const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets'
 const DRIVE = 'https://www.googleapis.com/drive/v3/files'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
 export type Values = (string | number | boolean)[][]
 export interface SheetTab {
@@ -73,6 +74,27 @@ export class Google {
       `${DRIVE}?q=${encodeURIComponent(q)}&fields=files(id,name)`,
     )
     return r.files ?? []
+  }
+
+  async folder(name: string, parent?: string): Promise<string> {
+    const found = await this.findFiles(name, FOLDER_MIME, parent)
+    if (found.length) return found[0].id
+    const r = (await this.json(DRIVE, 'POST', {
+      name, mimeType: FOLDER_MIME, ...(parent ? { parents: [parent] } : {}),
+    })) as { id: string }
+    return r.id
+  }
+
+  /** Upload a file into a folder (replacing one with the same name). */
+  async putFile(folderId: string, name: string, mime: string, data: Uint8Array): Promise<void> {
+    const existing = await this.findFiles(name, undefined, folderId)
+    if (existing.length) {
+      await this.call(`${UPLOAD}/${existing[0].id}?uploadType=media`, {
+        method: 'PATCH', headers: { 'Content-Type': mime }, body: data,
+      })
+      return
+    }
+    await this.multipart({ name, parents: [folderId] }, mime, data)
   }
 
   private async multipart(meta: object, mime: string, data: Uint8Array | string): Promise<{ id: string }> {

@@ -197,6 +197,9 @@ export interface Backend {
    * and a typed one is saved after it opens a PDF.
    */
   uploadStatements(files: UploadFile[], passwords?: Passwords): Promise<UploadResult[]>
+  /** Keep a copy of each uploaded PDF in Drive › fincomp › statements (off: read, then discarded). */
+  getKeepPdfCopies(): Promise<boolean>
+  setKeepPdfCopies(on: boolean): Promise<void>
 
   /** Your category list (Settings › Lists). */
   listCategories(): Promise<Category[]>
