@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { dayMonth, monthName, rm, signedRm } from '../app/format'
-import { href } from '../app/router'
+import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
-import { IMPORTANCE, STATEMENT_SOURCES, type Kind, type MonthSummary, type NewRow, type Row, type Trip } from '../data/Backend'
+import { IMPORTANCE, STATEMENT_SOURCES, type Kind, type Month as MonthT, type MonthSummary, type NewRow, type Row, type Trip } from '../data/Backend'
 
 export function Month({ year, month }: { year?: number; month?: number }) {
   const months = useLoad((b) => b.listMonths())
   const list = months.data ?? []
+  const [picking, setPicking] = useState(false)
   const now = new Date()
   const target =
     (year && list.find((m) => m.year === year && m.month === month)) ||
@@ -33,7 +34,11 @@ export function Month({ year, month }: { year?: number; month?: number }) {
         <a className={next ? 'icon-btn' : 'icon-btn disabled'} href={next ? href({ name: 'month', ...next }) : undefined} aria-label="Next month">
           ›
         </a>
+        <button className="icon-btn" onClick={() => setPicking(true)} aria-label="Choose month and year" title="Choose month and year">
+          <CalendarIcon />
+        </button>
       </div>
+      {picking && <MonthPicker months={list} current={target} onClose={() => setPicking(false)} />}
       <MonthBody year={target.year} month={target.month} />
     </div>
   )
@@ -362,6 +367,60 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
           </button>
         </div>
       </form>
+    </Sheet>
+  )
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function CalendarIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </svg>
+  )
+}
+
+/** Pick a year, then a month; months without a tab are greyed out. */
+function MonthPicker({ months, current, onClose }: { months: MonthT[]; current: MonthT; onClose(): void }) {
+  const years = [...new Set(months.map((m) => m.year))].sort((a, b) => a - b)
+  const [year, setYear] = useState(current.year)
+  const yi = years.indexOf(year)
+  const has = (m: number) => months.some((x) => x.year === year && x.month === m)
+  return (
+    <Sheet title="Choose a month" onClose={onClose}>
+      <div className="stack">
+        <div className="month-nav picker-year">
+          <button className="icon-btn" disabled={yi <= 0} onClick={() => setYear(years[yi - 1])} aria-label="Previous year">
+            ‹
+          </button>
+          <h2>{year}</h2>
+          <button className="icon-btn" disabled={yi >= years.length - 1} onClick={() => setYear(years[yi + 1])} aria-label="Next year">
+            ›
+          </button>
+        </div>
+        <div className="month-picker">
+          {SHORT_MONTHS.map((name, i) => {
+            const m = i + 1
+            const on = year === current.year && m === current.month
+            return (
+              <button
+                key={name}
+                className={on ? 'chip on' : 'chip'}
+                disabled={!has(m)}
+                onClick={() => {
+                  go({ name: 'month', year, month: m })
+                  onClose()
+                }}
+              >
+                {name}
+              </button>
+            )
+          })}
+        </div>
+        <p className="muted small">Greyed-out months have no tab yet.</p>
+      </div>
     </Sheet>
   )
 }

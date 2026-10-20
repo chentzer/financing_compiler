@@ -677,6 +677,17 @@ a:focus-visible {
 }
 .month-nav h2 {
   font-size: 1.15rem;
+  flex: 1;
+  text-align: center;
+}
+.month-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.month-picker .chip:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .month-grid {
   display: grid;
