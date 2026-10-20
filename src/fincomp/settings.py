@@ -4,7 +4,7 @@ edit. Also the hidden Ledger tab (every parsed transaction, so statements
 uploaded one at a time are still deduped and paired across banks).
 
 PDF passwords are *not* here: they live in the Drive App Data folder
-(passwords.json), which only this app can see.
+(passwords.vault.json), encrypted with the user's PIN (vault.py).
 
 Pure functions: tab values in, Config out, and back. Write these tabs with
 valueInputOption RAW so text stays text (dates, "+60..." numbers, "=").
@@ -18,7 +18,7 @@ from .config import Config, Trip
 from .models import Transaction
 
 SETTINGS_TITLE = "fincomp Settings"
-PASSWORDS_FILE = "passwords.json"  # in the Drive App Data folder
+PASSWORDS_FILE = "passwords.vault.json"  # in the Drive App Data folder, encrypted (vault.py)
 
 RULES = "Rules"
 PEOPLE = "People"

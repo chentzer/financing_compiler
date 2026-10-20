@@ -6,7 +6,7 @@
  *   "fincomp Settings"  Rules / People / Trips / Own payees / Lists /
  *                       Removed / Ledger (hidden: every parsed transaction)
  *   "<year> Accounts"   month tabs, trip tabs, To Update, Year End Summary
- *   App Data folder     passwords.json (statement passwords, private to this app)
+ *   App Data folder     passwords.vault.json (statement passwords, encrypted with your PIN)
  *   fincomp/statements  copies of the uploaded PDFs
  *
  * What to write is decided in Python (sheetplan.py via webapi.py); this
@@ -30,12 +30,17 @@ import {
   type Settings,
   type UploadFile,
   type UploadResult,
+  type VaultState,
 } from './Backend'
 import { Google, type SheetTab, type Values } from './google'
 import { py, warmUp } from './py/client'
+import * as vault from './vault'
+import { keepLocal, localBlob, type VaultBlob } from './vault'
 
 const SETTINGS_TITLE = 'fincomp Settings'
-const PASSWORDS_FILE = 'passwords.json'
+// Encrypted passwords (vault.ts); the old readable file is converted once, then deleted.
+const VAULT_FILE = 'passwords.vault.json'
+const LEGACY_PASSWORDS_FILE = 'passwords.json'
 const TO_UPDATE = 'To Update'
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
@@ -286,7 +291,7 @@ export class PyodideBackend implements Backend {
 
   async uploadStatements(files: UploadFile[], typed: Passwords = {}): Promise<UploadResult[]> {
     const settings = await this.readSettings()
-    const saved = await this.getPasswords()
+    const saved = (await this.vaultState()) === 'unlocked' ? { ...this.unlocked!.passwords } : {}
     const passwords = { ...saved, ...typed }
     const out = await py<CompileOut>('compile_upload', [null, settings.values, passwords, settings.ledger],
       files.map((f) => ({ name: f.name, data: f.data })))
@@ -300,7 +305,7 @@ export class PyodideBackend implements Backend {
         learned[f.parser] = typed[f.parser]
         changed = true
       }
-      if (changed) await this.savePasswords(learned)
+      if (changed && this.unlocked) await this.savePasswords(learned)
       await this.writeLedger(settings.id, out.ledger)
       for (const year of out.years) await this.syncYear(year)
       await this.keepCopies(files.filter((f) => okFiles.some((o) => o.name === f.name)))
@@ -404,12 +409,84 @@ export class PyodideBackend implements Backend {
     await this.g.write(id, Object.entries(tabs).filter(([, rows]) => rows.length).map(([t, rows]) => ({ range: `${quote(t)}!A2`, values: rows })), 'RAW')
   }
 
+  // ---- passwords: encrypted with the PIN (vault.ts) -----------------------------------
+
+  private unlocked?: { key: CryptoKey; salt: string; passwords: Passwords }
+
+  /** The encrypted blob: Drive first (it syncs devices), this device's copy if offline. */
+  private async blob(): Promise<VaultBlob | null> {
+    try {
+      const b = await this.g.readAppData<VaultBlob | null>(VAULT_FILE, null)
+      if (b) keepLocal(b)
+      return b
+    } catch {
+      return localBlob()
+    }
+  }
+
+  async vaultState(): Promise<VaultState> {
+    const b = await this.blob()
+    if (!b) return 'new'
+    if (this.unlocked?.salt === b.salt) {
+      this.unlocked.passwords = await vault.open(b, this.unlocked.key) // pick up edits from other devices
+      return 'unlocked'
+    }
+    const key = await vault.rememberedKey(b.salt)
+    if (key) {
+      try {
+        this.unlocked = { key, salt: b.salt, passwords: await vault.open(b, key) }
+        return 'unlocked'
+      } catch {
+        await vault.forget()
+      }
+    }
+    this.unlocked = undefined
+    return 'locked'
+  }
+
+  async unlockVault(pin: string, rememberHere: boolean): Promise<void> {
+    const b = await this.blob()
+    if (!b) throw new Error('No saved passwords yet: set a PIN first.')
+    const key = await vault.deriveKey(pin, vault.saltOf(b), b.iterations)
+    this.unlocked = { key, salt: b.salt, passwords: await vault.open(b, key) } // throws WrongPinError
+    if (rememberHere) await vault.remember(key, b.salt)
+    else await vault.forget()
+  }
+
+  async setVaultPin(pin: string, rememberHere: boolean): Promise<void> {
+    if (pin.length < 6) throw new Error('Use at least 6 characters for the PIN.')
+    const existing = await this.blob()
+    if (existing && !this.unlocked) throw new Error('Unlock with your current PIN first.')
+    // What to encrypt: the current passwords, or the old unencrypted file once.
+    const passwords = this.unlocked?.passwords ?? (await this.g.readAppData<Passwords>(LEGACY_PASSWORDS_FILE, {}))
+    const salt = vault.newSalt() // a new random salt for every PIN
+    const key = await vault.deriveKey(pin, salt)
+    const b = await vault.seal(passwords, key, salt)
+    await this.g.writeAppData(VAULT_FILE, b)
+    keepLocal(b)
+    await this.g.deleteAppData(LEGACY_PASSWORDS_FILE) // no readable copy left in Drive
+    this.unlocked = { key, salt: b.salt, passwords }
+    if (rememberHere) await vault.remember(key, b.salt)
+    else await vault.forget()
+  }
+
+  async lockVault(): Promise<void> {
+    this.unlocked = undefined
+    await vault.forget()
+  }
+
   async getPasswords(): Promise<Passwords> {
-    return this.g.readAppData<Passwords>(PASSWORDS_FILE, {})
+    if ((await this.vaultState()) !== 'unlocked') throw new Error('Your saved passwords are locked: enter your PIN.')
+    return { ...this.unlocked!.passwords }
   }
 
   async savePasswords(passwords: Passwords): Promise<void> {
-    await this.g.writeAppData(PASSWORDS_FILE, Object.fromEntries(Object.entries(passwords).filter(([, v]) => v)))
+    if (!this.unlocked) throw new Error('Your saved passwords are locked: enter your PIN.')
+    const clean = Object.fromEntries(Object.entries(passwords).filter(([, v]) => v))
+    const b = await vault.seal(clean, this.unlocked.key, vault.saltOf({ salt: this.unlocked.salt } as VaultBlob))
+    await this.g.writeAppData(VAULT_FILE, b)
+    keepLocal(b)
+    this.unlocked.passwords = clean
   }
 }
 

@@ -13,7 +13,9 @@ import {
   type Settings,
   type UploadFile,
   type UploadResult,
+  type VaultState,
 } from './Backend'
+import { WrongPinError } from './vault'
 import { demoUploadRows, initialState, toRow, type MockState } from './mockData'
 
 const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms))
@@ -178,7 +180,7 @@ export class MockBackend implements Backend {
       }
       if (ENCRYPTED.has(source)) {
         const typed = passwords[source]
-        const pw = typed ?? this.s.passwords[source]
+        const pw = typed ?? (this.open ? this.s.passwords[source] : undefined)
         if (!pw || pw === 'wrong') {
           results.push({
             file: f.name,
@@ -190,7 +192,7 @@ export class MockBackend implements Backend {
           })
           continue
         }
-        if (typed) this.s.passwords[source] = typed
+        if (typed && this.open) this.s.passwords[source] = typed
       }
       if (this.s.uploaded.has(f.name)) {
         results.push({ file: f.name, status: 'ok', source, rowsAdded: 0, cardsAdded: 0, message: 'Already uploaded: nothing new.' })
@@ -232,13 +234,42 @@ export class MockBackend implements Backend {
     this.s.settings = clone(settings)
   }
 
+  // Demo vault: same states and errors as the real one, PIN kept in memory.
+  private pin: string | null = null
+  private open = false
+
+  async vaultState(): Promise<VaultState> {
+    await wait(100)
+    return this.pin === null ? 'new' : this.open ? 'unlocked' : 'locked'
+  }
+
+  async unlockVault(pin: string): Promise<void> {
+    await wait(600) // the real one runs 600,000 PBKDF2 rounds
+    if (pin !== this.pin) throw new WrongPinError()
+    this.open = true
+  }
+
+  async setVaultPin(pin: string): Promise<void> {
+    await wait(600)
+    if (pin.length < 6) throw new Error('Use at least 6 characters for the PIN.')
+    if (this.pin !== null && !this.open) throw new Error('Unlock with your current PIN first.')
+    this.pin = pin
+    this.open = true
+  }
+
+  async lockVault(): Promise<void> {
+    this.open = false
+  }
+
   async getPasswords(): Promise<Passwords> {
     await wait()
+    if (!this.open) throw new Error('Your saved passwords are locked: enter your PIN.')
     return { ...this.s.passwords }
   }
 
   async savePasswords(passwords: Passwords): Promise<void> {
     await wait()
+    if (!this.open) throw new Error('Your saved passwords are locked: enter your PIN.')
     this.s.passwords = { ...passwords }
   }
 }

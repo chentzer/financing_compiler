@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { errorText, useData } from '../app/context'
 import { href } from '../app/router'
+import { PinGate } from '../components/PinGate'
 import { STATEMENT_SOURCES, type UploadFile, type UploadResult } from '../data/Backend'
 
 const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? key ?? ''
@@ -10,18 +11,35 @@ async function read(f: File): Promise<UploadFile> {
 }
 
 export function Upload() {
+  return (
+    <PinGate reason="Statements from TNG, AEON Credit and others are locked with a password.">
+      <UploadInner />
+    </PinGate>
+  )
+}
+
+function UploadInner() {
   const { backend, changed } = useData()
   const input = useRef<HTMLInputElement>(null)
   const [picked, setPicked] = useState<UploadFile[]>([])
   const [results, setResults] = useState<UploadResult[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [dragging, setDragging] = useState(false)
 
+  /** Each pick adds to the list (statements often sit in different folders);
+   * picking the same file again replaces it. */
   async function pick(list: FileList | null) {
-    if (!list?.length) return
-    setPicked(await Promise.all([...list].map(read)))
+    const pdfs = [...(list ?? [])].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name))
+    if (!pdfs.length) return
+    const added = await Promise.all(pdfs.map(read))
+    setPicked((prev) => [...prev.filter((p) => !added.some((a) => a.name === p.name)), ...added])
     setResults([])
     setError(undefined)
+  }
+
+  function remove(name: string) {
+    setPicked((prev) => prev.filter((f) => f.name !== name))
   }
 
   async function run(files: UploadFile[], passwords?: Record<string, string>) {
@@ -49,10 +67,23 @@ export function Upload() {
 
   return (
     <div className="stack">
-      <div className="card">
+      <div
+        className={`card${dragging ? ' drop-target' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (!busy) setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          if (!busy) pick(e.dataTransfer.files)
+        }}
+      >
         <p className="muted">
-          Pick statement PDFs from any of your banks or e-wallets. They're read on this device; only the results go to
-          your Google Drive. Saved passwords are used automatically.
+          Pick statement PDFs from any of your banks or e-wallets: several at once, or a few at a time from
+          different folders (or drop them here). They're read on this device; only the results go to your Google
+          Drive. Saved passwords are used automatically.
         </p>
         <input
           ref={input}
@@ -67,10 +98,10 @@ export function Upload() {
         />
         <div className="btn-row">
           <button className="btn" onClick={() => input.current?.click()} disabled={busy}>
-            Choose PDFs
+            {picked.length ? 'Add more PDFs' : 'Choose PDFs'}
           </button>
           <button className="btn primary" onClick={() => run(picked)} disabled={busy || picked.length === 0}>
-            {busy ? 'Working…' : `Upload ${picked.length || ''}`.trim()}
+            {busy ? 'Working…' : picked.length ? `Upload ${picked.length} ${picked.length === 1 ? 'file' : 'files'}` : 'Upload'}
           </button>
         </div>
         {picked.length > 0 && results.length === 0 && (
@@ -79,6 +110,15 @@ export function Upload() {
               <li key={f.name}>
                 <span className="file-name">{f.name}</span>
                 <span className="muted small">{Math.max(1, Math.round(f.data.length / 1024))} KB</span>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() => remove(f.name)}
+                  disabled={busy}
+                  aria-label={`Remove ${f.name}`}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>

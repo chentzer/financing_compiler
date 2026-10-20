@@ -120,16 +120,19 @@ def _sync_year(gc, year: int, tabs: list[Tab], config: Config, answers: dict[str
 # ---- one-time: config.toml -> Drive, for the website and phone app -------------
 
 
-def push_settings(config: Config, ledger: list | None = None) -> str:
+def push_settings(config: Config, ask_pin, ledger: list | None = None) -> str:
     """Create or refresh the "fincomp Settings" sheet from config.toml, put
-    the statement passwords in the Drive App Data folder, and (optionally)
-    seed the Ledger with already-parsed transactions. Returns the sheet URL."""
+    the statement passwords (encrypted with your PIN) in the Drive App Data
+    folder, and (optionally) seed the Ledger with already-parsed
+    transactions. `ask_pin(creating: bool) -> str` gets the PIN. Returns the
+    sheet URL."""
     import json
 
     import gspread
     from google.auth.transport.requests import AuthorizedSession
 
     from . import settings as S
+    from . import vault as V
 
     gc = connect(config.google)
     try:
@@ -157,18 +160,31 @@ def push_settings(config: Config, ledger: list | None = None) -> str:
     if placeholder:
         sh.del_worksheet(sheets[placeholder])
 
-    # Passwords: one JSON file in the App Data folder, created or replaced.
+    # Passwords: encrypted with the PIN (vault.py), one file in the App Data
+    # folder. Merged into what's already there; the old readable file goes.
     session = AuthorizedSession(gc.http_client.auth)
-    found = session.get(
-        "https://www.googleapis.com/drive/v3/files",
-        params={"spaces": "appDataFolder", "q": f"name = '{S.PASSWORDS_FILE}'", "fields": "files(id)"},
-    ).json().get("files", [])
-    body = json.dumps({k: v for k, v in config.passwords.items() if v})
+
+    def find(name: str) -> list[dict]:
+        return session.get(
+            "https://www.googleapis.com/drive/v3/files",
+            params={"spaces": "appDataFolder", "q": f"name = '{name}'", "fields": "files(id)"},
+        ).json().get("files", [])
+
+    found = find(V.VAULT_FILE)
+    mine = {k: v for k, v in config.passwords.items() if v}
+    if found:
+        current = session.get(f"https://www.googleapis.com/drive/v3/files/{found[0]['id']}?alt=media").json()
+        pin = ask_pin(False)
+        merged = {**V.open_vault(current, pin), **mine}  # raises WrongPin
+        blob = V.seal(merged, pin, salt=V.salt_of(current))
+    else:
+        blob = V.seal(mine, ask_pin(True))  # a new random salt
+    body = json.dumps(blob)
     if found:
         url = f"https://www.googleapis.com/upload/drive/v3/files/{found[0]['id']}?uploadType=media"
         session.patch(url, data=body, headers={"Content-Type": "application/json"}).raise_for_status()
     else:
-        meta = json.dumps({"name": S.PASSWORDS_FILE, "parents": ["appDataFolder"]})
+        meta = json.dumps({"name": V.VAULT_FILE, "parents": ["appDataFolder"]})
         boundary = "fincomp-boundary"
         crlf = "\r\n"
         multipart = crlf.join([
@@ -180,4 +196,6 @@ def push_settings(config: Config, ledger: list | None = None) -> str:
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
             data=multipart.encode(), headers={"Content-Type": f"multipart/related; boundary={boundary}"},
         ).raise_for_status()
+    for old in find(V.LEGACY_FILE):
+        session.delete(f"https://www.googleapis.com/drive/v3/files/{old['id']}").raise_for_status()
     return sh.url

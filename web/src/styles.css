@@ -422,9 +422,20 @@ a:focus-visible {
 .file-list li {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 8px 0;
   border-top: 1px solid var(--border);
+}
+.file-list li .file-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.card.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  background: var(--accent-soft);
 }
 .file-name {
   font-weight: 600;
@@ -933,4 +944,19 @@ button.row:hover {
 .uc-actions .btn {
   padding: 10px 8px;
   white-space: nowrap;
+}
+
+/* PIN gate for the encrypted statement passwords */
+.pin-gate h3 {
+  margin: 0;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+.check input {
+  width: 18px;
+  height: 18px;
 }

@@ -119,6 +119,12 @@ export class Google {
     return this.call<T>(`${DRIVE}/${r.files[0].id}?alt=media`)
   }
 
+  async deleteAppData(name: string): Promise<void> {
+    const q = encodeURIComponent(`name = '${name}'`)
+    const r = await this.call<{ files: { id: string }[] }>(`${DRIVE}?spaces=appDataFolder&q=${q}&fields=files(id)`)
+    for (const f of r.files ?? []) await this.call(`${DRIVE}/${f.id}`, { method: 'DELETE' })
+  }
+
   async writeAppData(name: string, value: unknown): Promise<void> {
     const q = encodeURIComponent(`name = '${name}'`)
     const r = await this.call<{ files: { id: string }[] }>(`${DRIVE}?spaces=appDataFolder&q=${q}&fields=files(id)`)

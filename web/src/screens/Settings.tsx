@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { PinGate } from '../components/PinGate'
 import { errorText, useData, useLoad } from '../app/context'
 import { shortDate } from '../app/format'
 import { href } from '../app/router'
@@ -379,7 +380,16 @@ function TextSheet({
 }
 
 function PasswordsTab() {
+  return (
+    <PinGate reason="Statement passwords are kept encrypted.">
+      <PasswordsList />
+    </PinGate>
+  )
+}
+
+function PasswordsList() {
   const { backend, changed, toast } = useData()
+  const [changingPin, setChangingPin] = useState(false)
   const load = useLoad((b) => b.getPasswords())
   const [editing, setEditing] = useState<string | null>(null)
 
@@ -401,8 +411,24 @@ function PasswordsTab() {
   return (
     <section className="card flush">
       <p className="muted small pad">
-        Kept in your Google Drive's private app folder, never in a sheet. Used automatically when you upload.
+        Encrypted with your PIN, then kept in your Google Drive's private app folder (never in a sheet). Used
+        automatically when you upload.
       </p>
+      <div className="btn-row pad">
+        <button className="btn small" onClick={() => setChangingPin(true)}>
+          Change PIN
+        </button>
+        <button
+          className="btn small ghost"
+          onClick={async () => {
+            await backend.lockVault()
+            toast('Locked on this device: the PIN will be asked next time')
+            changed()
+          }}
+        >
+          Lock on this device
+        </button>
+      </div>
       <ul className="rows">
         {STATEMENT_SOURCES.map((s) => (
           <li key={s.key} className="row static">
@@ -430,6 +456,7 @@ function PasswordsTab() {
           </li>
         ))}
       </ul>
+      {changingPin && <ChangePinSheet onClose={() => setChangingPin(false)} />}
       {editing && (
         <PasswordSheet
           label={STATEMENT_SOURCES.find((s) => s.key === editing)!.label}
@@ -438,6 +465,54 @@ function PasswordsTab() {
         />
       )}
     </section>
+  )
+}
+
+function ChangePinSheet({ onClose }: { onClose(): void }) {
+  const { backend, changed, toast } = useData()
+  const [pin, setPin] = useState('')
+  const [again, setAgain] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const ok = pin.length >= 6 && pin === again
+  return (
+    <Sheet title="Change PIN" onClose={onClose}>
+      <form
+        className="stack"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          if (!ok) return
+          setBusy(true)
+          try {
+            await backend.setVaultPin(pin, true)
+            toast('PIN changed: passwords re-encrypted with a new salt')
+            changed()
+            onClose()
+          } catch (err) {
+            setError(errorText(err))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <p className="small muted">Your other devices will ask for the new PIN next time.</p>
+        <Field label="New PIN" hint="6 or more digits, or a passphrase">
+          <input type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(e) => setPin(e.target.value)} autoFocus />
+        </Field>
+        <Field label="Type it again" hint={again && again !== pin ? "The two PINs don't match." : undefined}>
+          <input type="password" inputMode="numeric" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+        </Field>
+        {error && <p className="error-text">{error}</p>}
+        <div className="btn-row end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || !ok}>
+            {busy ? 'Encrypting…' : 'Change PIN'}
+          </button>
+        </div>
+      </form>
+    </Sheet>
   )
 }
 

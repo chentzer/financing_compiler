@@ -64,12 +64,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.push_settings:
         from .gsheets import push_settings
 
+        from getpass import getpass
+
+        from .vault import WrongPin
+
+        def ask_pin(creating: bool) -> str:
+            if not creating:
+                return getpass("PIN for your saved statement passwords: ")
+            while True:
+                pin = getpass("Create a PIN to encrypt your statement passwords (6+ characters): ")
+                if len(pin) >= 6 and pin == getpass("Type it again: "):
+                    return pin
+                print("  They didn't match, or it's shorter than 6 characters. Try again.")
+
         try:
-            url = push_settings(config, ledger=compiled.parsed)
-        except UploadError as e:
+            url = push_settings(config, ask_pin, ledger=compiled.parsed)
+        except (UploadError, WrongPin) as e:
             print(f"  FAIL   push-settings: {e}")
             return 3
-        print(f"Settings, passwords and {len(compiled.parsed)} transactions are in your Drive: {url}")
+        print(f"Settings, encrypted passwords and {len(compiled.parsed)} transactions are in your Drive: {url}")
         return 0
     if compiled.duplicates:
         print(f"Dropped {compiled.duplicates} duplicate rows from overlapping statements.")

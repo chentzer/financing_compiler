@@ -163,8 +163,16 @@ export interface Settings {
   ownPayees: string[]
 }
 
-/** PDF passwords keyed by STATEMENT_SOURCES key. Lives in Drive App Data (passwords.json). */
+/** PDF passwords keyed by STATEMENT_SOURCES key. Encrypted with the user's PIN (see vault.ts). */
 export type Passwords = Record<string, string>
+
+/**
+ * The saved passwords' lock:
+ * - "new": no PIN yet (nothing saved, or only an old unencrypted file to convert)
+ * - "locked": saved and encrypted; the PIN is needed on this device
+ * - "unlocked": usable now (PIN entered, or remembered on this device)
+ */
+export type VaultState = 'new' | 'locked' | 'unlocked'
 
 export interface Backend {
   /** Months that have a tab, oldest first. */
@@ -190,6 +198,15 @@ export interface Backend {
 
   getSettings(): Promise<Settings>
   saveSettings(settings: Settings): Promise<void>
+
+  vaultState(): Promise<VaultState>
+  /** Throws WrongPinError (vault.ts) for a wrong PIN. */
+  unlockVault(pin: string, rememberHere: boolean): Promise<void>
+  /** Set a PIN the first time, or change it (needs the vault unlocked). New random salt each time. */
+  setVaultPin(pin: string, rememberHere: boolean): Promise<void>
+  /** Forget the PIN on this device. */
+  lockVault(): Promise<void>
+  /** Need the vault unlocked. */
   getPasswords(): Promise<Passwords>
   savePasswords(passwords: Passwords): Promise<void>
 }
