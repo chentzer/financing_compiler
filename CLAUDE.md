@@ -7,7 +7,10 @@ one Python package:
 - **Website + Android app** (`web/`): no server. The page runs `fincomp`
   in the browser with Pyodide, parses PDFs on the device, and calls the
   Google Sheets/Drive APIs directly with the user's Google sign-in. It's
-  deployed to GitHub Pages; Android is the same app wrapped by Capacitor.
+  deployed to GitHub Pages; Android is the same app wrapped by Capacitor,
+  built and signed by `.github/workflows/android.yml` (APK on the
+  `android` release). The signing key is in the gitignored `.signing/`:
+  never commit it.
 - **CLI** (`python -m fincomp`) for development and the one-time
   `--push-settings`.
 
@@ -47,6 +50,10 @@ python -m venv .venv
 - `settings.py`: the "fincomp Settings" sheet (Rules, People, Trips, Own
   payees, Lists, Removed, hidden Ledger) ↔ `Config`. Passwords are in the
   Drive App Data folder, never in a sheet.
+- `suggest.py`: category suggestions for To Update cards (your past rows,
+  then common shop words). Categories are the user's list (Settings ›
+  Lists); adding one rewrites month tabs' By Category block and dropdowns
+  (`sheetplan.category_refresh`).
 - `webapi.py`: the JSON-in/JSON-out functions the web app calls through
   Pyodide.
 - `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.

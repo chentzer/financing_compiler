@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { shortDate, signedRm } from '../app/format'
 import { href } from '../app/router'
+import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading } from '../components/ui'
-import { CATEGORIES, IMPORTANCE, type Card, type Category, type Importance } from '../data/Backend'
+import { IMPORTANCE, type Card, type Category, type Importance } from '../data/Backend'
 
 export function Cards() {
   const load = useLoad((b) => b.listCards())
@@ -71,6 +72,20 @@ function CardForm({ card, onLater }: { card: Card; onLater(): void }) {
   const [same, setSame] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [suggested, setSuggested] = useState<Category[]>([])
+
+  // Suggestions from your past rows and the shop name; they follow what you type.
+  useEffect(() => {
+    if (!needsCategory || !isSpend) return
+    let live = true
+    const t = setTimeout(() => {
+      backend.suggestCategories(card.key, item.trim()).then((c) => live && setSuggested(c), () => {})
+    }, item ? 300 : 0)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [backend, card.key, item, needsCategory, isSpend])
 
   const who = card.remarks ? card.remarks.replace(/^(To|From) /, '') : card.statement
   const direction = card.counterparty ? (isSpend ? 'to' : 'from') : 'at'
@@ -140,7 +155,7 @@ function CardForm({ card, onLater }: { card: Card; onLater(): void }) {
       )}
       {needsCategory && isSpend && (
         <Field label="Category">
-          <Chips label="Category" options={CATEGORIES} value={category} onChange={setCategory} />
+          <CategoryPicker value={category} onChange={setCategory} suggested={suggested} />
         </Field>
       )}
       {isSpend && (

@@ -14,7 +14,6 @@
  */
 import type { Auth } from '../auth/Auth'
 import {
-  CATEGORIES,
   IMPORTANCE,
   type Backend,
   type Card,
@@ -165,7 +164,7 @@ export class PyodideBackend implements Backend {
         .filter((c) => c.name !== '' || c.amount > 0)
     return {
       year, month,
-      byCategory: named<Category>(sm.byCategory, CATEGORIES),
+      byCategory: named<Category>(sm.byCategory, await this.listCategories()),
       byImportance: named<Importance>(sm.byImportance, IMPORTANCE),
       earnings: sm.earnings, spendings: sm.spendings, trips, tripsTotal: sm.trips, final: sm.final,
     }
@@ -244,6 +243,7 @@ export class PyodideBackend implements Backend {
     if (Object.keys(fields).length) await this.writeFields(at, key, fields)
     await this.removeCard(at.book, key)
     writeLater(readLater().filter((k) => k !== key))
+    if (answer.category) this.history?.push([answer.item || at.card.item, at.card.remarks, answer.category])
 
     if (answer.sameForEvery) {
       const match = at.card.counterparty || at.card.statement
@@ -373,6 +373,58 @@ export class PyodideBackend implements Backend {
     } catch {
       /* the accounts are already written; a missing copy isn't worth failing over */
     }
+  }
+
+  // ---- categories ---------------------------------------------------------------------
+
+  private cats?: string[]
+  private history?: string[][]
+
+  async listCategories(): Promise<string[]> {
+    if (this.cats) return this.cats
+    const [lists] = await this.g.read(await this.settingsBook(), [SETTINGS_RANGES.Lists], 'UNFORMATTED_VALUE')
+    this.cats = await py<string[]>('categories', [{ Lists: lists }])
+    return this.cats
+  }
+
+  async saveCategories(names: string[]): Promise<void> {
+    const id = await this.settingsBook()
+    const [lists, trips] = await this.g.read(id, [SETTINGS_RANGES.Lists, SETTINGS_RANGES.Trips], 'UNFORMATTED_VALUE')
+    const rows = await py<Values>('lists_rows', [names, { Lists: lists }])
+    await this.g.clear(id, ["'Lists'!A2:B"])
+    if (rows.length) await this.g.write(id, [{ range: "'Lists'!A2", values: rows }], 'RAW')
+    this.cats = undefined
+    // Every month tab's "By Category" block and the Category dropdowns.
+    const settings = { Lists: [lists[0] ?? ['Categories', 'Importance'], ...rows], Trips: trips }
+    for (const b of await this.yearBooks()) {
+      const { ids } = await this.ids(b.id)
+      const plan = await py<{ clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }>(
+        'category_refresh', [b.year, ids, settings])
+      if (plan.clear.length) await this.g.clear(b.id, plan.clear)
+      if (plan.data.length) await this.g.write(b.id, plan.data, 'USER_ENTERED')
+      if (plan.requests.length) await this.g.batch(b.id, plan.requests)
+    }
+  }
+
+  async suggestCategories(cardKey: string, item: string): Promise<string[]> {
+    const card = this.cardsAt.get(cardKey)?.card
+    if (!card || card.kind !== 'spend') return []
+    return py<string[]>('suggest', [card.statement, card.remarks, item || card.item, await this.categoryHistory(),
+      await this.listCategories()])
+  }
+
+  /** [item, remarks, category] of every spending row that has a category, all years. */
+  private async categoryHistory(): Promise<string[][]> {
+    if (this.history) return this.history
+    const out: string[][] = []
+    for (const b of await this.yearBooks()) {
+      const tabs = (await this.g.tabs(b.id)).map((t) => t.title).filter((t) => t !== TO_UPDATE && t !== 'Year End Summary')
+      if (!tabs.length) continue
+      const got = await this.g.read(b.id, tabs.map((t) => `${quote(t)}!A3:F`), 'UNFORMATTED_VALUE')
+      for (const rows of got) for (const r of rows) if (s(r[2])) out.push([s(r[1]), s(r[5]), s(r[2])])
+    }
+    this.history = out
+    return out
   }
 
   // ---- settings & passwords -------------------------------------------------------------

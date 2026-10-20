@@ -17,6 +17,7 @@
   "dependencies": {
     "@capacitor/android": "^7.6.9",
     "@capacitor/core": "^7.6.9",
+    "@capgo/capacitor-social-login": "^7.20.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

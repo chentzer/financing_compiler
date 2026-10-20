@@ -47,6 +47,32 @@ const ENCRYPTED = new Set(['tng', 'aeon_credit', 'maybank_cc'])
  */
 export class MockBackend implements Backend {
   private s: MockState = initialState()
+  private cats: string[] = [...CATEGORIES]
+
+  async listCategories(): Promise<string[]> {
+    await wait(50)
+    return [...this.cats]
+  }
+
+  async saveCategories(names: string[]): Promise<void> {
+    await wait()
+    this.cats = [...new Set(names.map((n) => n.trim()).filter(Boolean))]
+  }
+
+  /** A rough stand-in for suggest.py: your past rows with the same person or Item. */
+  async suggestCategories(cardKey: string, item: string): Promise<string[]> {
+    await wait(50)
+    const card = this.s.cards.get(cardKey)
+    if (!card || card.kind !== 'spend') return []
+    const it = (item || card.item).toLowerCase()
+    const score = new Map<string, number>()
+    for (const r of this.s.rows) {
+      if (!r.category || !this.cats.includes(r.category)) continue
+      const hit = (card.remarks && r.remarks === card.remarks ? 3 : 0) + (it && r.item.toLowerCase() === it ? 4 : 0)
+      if (hit) score.set(r.category, (score.get(r.category) ?? 0) + hit)
+    }
+    return [...score].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 3)
+  }
 
   async listMonths(): Promise<Month[]> {
     await wait(100)
@@ -69,8 +95,8 @@ export class MockBackend implements Backend {
       .filter((t) => t.total > 0)
     const tripsTotal = trips.reduce((a, t) => a + t.total, 0)
 
-    const byCategory = [...CATEGORIES, ''].map((name) => ({
-      name: name as (typeof CATEGORIES)[number] | '',
+    const byCategory = [...this.cats, ''].map((name) => ({
+      name,
       amount: sum(spend.filter((r) => r.category === name)),
     }))
     const byImportance = [...IMPORTANCE, ''].map((name) => ({

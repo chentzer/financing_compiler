@@ -11,15 +11,16 @@ import { PyodideBackend } from './data/PyodideBackend'
 /**
  * Picks the Auth and Backend for this build.
  *
- * - VITE_BACKEND=mock (the default for now): MockBackend + demo sign-in.
+ * - VITE_BACKEND=mock (the default in development): MockBackend + demo sign-in.
  * - VITE_BACKEND=real: PyodideBackend (fincomp in Pyodide + Google APIs);
  *   it calls auth.getAccessToken() for every Google request.
  */
 export function createAuth(): Auth {
   if (import.meta.env.VITE_BACKEND !== 'real') return new DemoAuth()
-  if (Capacitor.isNativePlatform()) return new NativeAuth()
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
   if (!clientId) return new NotConfiguredAuth()
+  // The Android app signs in natively; its token is still issued for the Web client ID.
+  if (Capacitor.isNativePlatform()) return new NativeAuth(clientId)
   return new GoogleWebAuth(clientId)
 }
 

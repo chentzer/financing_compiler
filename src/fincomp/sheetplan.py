@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from .accounts import (
-    FINAL_CELL, TO_UPDATE, TO_UPDATE_HEADERS, TRIPS_CELL, YEAR_SUMMARY, AccountRow, Tab, month_layout,
-    month_links, parse_month_title, quote, tab_order, to_update_table, trip_layout, year_summary_cells,
+    FINAL_CELL, FIRST_ROW, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TRIPS_CELL, YEAR_SUMMARY, AccountRow, Tab,
+    month_layout, month_links, parse_month_title, quote, tab_order, to_update_table, trip_layout, year_summary_cells,
 )
 from .config import Config
 
@@ -462,7 +462,7 @@ def as_amount(v) -> float:
 def summary_ranges(month_title: str) -> list[str]:
     """The month's own summary cells: what its formulas computed."""
     q = quote(month_title)
-    return [f"{q}!H3:I20", f"{q}!K3:L20", f"{q}!S3:T6"]
+    return [f"{q}!H3:I40", f"{q}!K3:L20", f"{q}!S3:T6"]
 
 
 def parse_summary(by_category: list[list], by_importance: list[list], totals: list[list]) -> dict:
@@ -550,3 +550,39 @@ def remove_card_request(to_update_sheet_id: int, row: int) -> dict:
             "range": {"sheetId": to_update_sheet_id, "dimension": "ROWS", "startIndex": row - 1, "endIndex": row}
         }
     }
+
+
+def category_refresh(sheet_ids: dict[str, int], year: int, config: Config) -> dict:
+    """After the category list changes: rewrite every month tab's "By
+    Category" block (H-I) and the Category dropdowns (month C, trip C and J)
+    so a new category is offered and summed everywhere. Nothing else is
+    touched. Returns {"clear", "data", "requests"}."""
+    months, trips = month_and_trip_tabs(list(sheet_ids), year, config)
+    layout = month_layout(config, True)
+    block = {c: v for c, v in layout.items() if c[0] in "HI"}
+    clear, data, requests = [], [], []
+
+    def dropdown(sheet_id: int, first: int, col: str) -> dict:
+        c = col_index(col)
+        return {
+            "setDataValidation": {
+                "range": grid(sheet_id, first, TAB_ROWS, c, c + 1),
+                "rule": {
+                    "condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in config.categories]},
+                    "showCustomUi": True,
+                    "strict": False,
+                },
+            }
+        }
+
+    for t in months:
+        q = quote(t)
+        clear.append(f"{q}!H3:I40")
+        data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in block.items()]
+        requests.append(dropdown(sheet_ids[t], FIRST_ROW - 1, "C"))
+    for t in trips:
+        requests.append(dropdown(sheet_ids[t], TRIP_FIRST_ROW - 1, "C"))
+        trip = next(x for x in config.trips if x.name == t)
+        if trip.currency:
+            requests.append(dropdown(sheet_ids[t], TRIP_FIRST_ROW - 1, "J"))
+    return {"clear": clear, "data": data, "requests": requests}

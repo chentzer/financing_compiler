@@ -32,3 +32,8 @@ NOTES.local.md
 
 # Local Claude Code tooling
 .claude/
+
+# Android release signing key (backed up by you; never committed)
+.signing/
+*.jks
+*.keystore

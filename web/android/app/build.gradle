@@ -7,7 +7,7 @@ android {
         applicationId "com.chentzer.fincomp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,8 +16,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing from the environment (GitHub Actions secrets), never from files in the repo.
+    // Google sign-in only works for APKs signed with the key whose SHA-1 is on the Android OAuth client.
+    def keystore = System.getenv("FINCOMP_KEYSTORE")
+    signingConfigs {
+        release {
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv("FINCOMP_KEYSTORE_PASSWORD")
+                keyAlias "fincomp"
+                keyPassword System.getenv("FINCOMP_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystore) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -585,6 +585,34 @@ a:focus-visible {
   color: var(--accent-ink);
   font-weight: 600;
 }
+.chip.suggested:not(.on) {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.chip.add {
+  border-style: dashed;
+  color: var(--muted);
+}
+.chips-label {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-right: 2px;
+}
+.category-picker {
+  display: grid;
+  gap: 8px;
+}
+.add-category {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.add-category input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
 .toggle {
   display: flex;
   align-items: center;

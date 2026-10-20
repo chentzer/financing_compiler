@@ -20,6 +20,7 @@ from dataclasses import asdict
 from . import settings as S
 from . import sheetplan
 from .pipeline import Compiled, compile_statements
+from .suggest import suggest_categories
 
 _state: dict = {}
 
@@ -133,6 +134,29 @@ def rule_row(match: str, item: str = "", category: str = "", importance: str = "
         if v:
             rule[k] = v
     return S.rule_row(rule)
+
+
+def categories(settings: dict) -> list[str]:
+    """The category list (Settings › Lists, or the defaults)."""
+    return _config(settings, {}).categories
+
+
+def lists_rows(categories: list[str], settings: dict) -> list[list]:
+    """Settings › Lists body (no header) with a new category list; the
+    Importance column stays as it is."""
+    config = _config(settings, {})
+    config.categories = [c for c in dict.fromkeys(c.strip() for c in categories) if c]
+    return S.tabs_from_config(config)[S.LISTS][1:]
+
+
+def suggest(statement: str, who: str, item: str, history: list[list], cats: list[str]) -> list[str]:
+    """Categories to offer first on a card. history: [item, remarks, category]."""
+    return suggest_categories(statement, who, item, history, cats)
+
+
+def category_refresh(year: int, sheet_ids: dict, settings: dict) -> dict:
+    """After the category list changed: the month tabs' By Category blocks and dropdowns."""
+    return sheetplan.category_refresh({k: int(v) for k, v in sheet_ids.items()}, int(year), _config(settings, {}))
 
 
 def settings_template() -> dict:

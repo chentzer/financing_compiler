@@ -8,7 +8,9 @@ Drive with the user's own sign-in.
 **Status:** the web app works end to end with `VITE_BACKEND=real`
 (`PyodideBackend`). `MockBackend` (made-up data, in memory) is the default
 for development and is what the site shows until a Google client ID is
-configured. Android still needs native Google sign-in (`NativeAuth`).
+configured. The Android app signs in natively (`NativeAuth`) and is built
+by GitHub Actions (see "Android" below). The website can also be installed
+from Chrome on a phone (Add to Home screen): it has a web app manifest.
 
 ## Run
 
@@ -48,11 +50,12 @@ src/data/MockBackend.ts  in-memory implementation
 src/data/mockData.ts     synthetic rows/cards/settings (made-up names only)
 src/auth/Auth.ts         sign-in interface, scopes, allowed email
 src/auth/GoogleWebAuth.ts  Google Identity Services token client (web)
-src/auth/NativeAuth.ts   TODO stub for Android native sign-in
+src/auth/NativeAuth.ts   Android sign-in (@capgo/capacitor-social-login)
 src/auth/DemoAuth.ts     fake sign-in for the mock
 src/setup.ts             picks Auth + Backend from VITE_BACKEND
 src/app/                 data context (useLoad, changed(), toast), hash router, formatting
 src/screens/             Home, Upload, Cards, Month, Settings
+src/components/CategoryPicker.tsx  category chips: suggestions first, "+ New" adds to your list
 ```
 
 ## The Backend interface
@@ -96,23 +99,39 @@ browser console.
 
 ## What's left
 
-- Android sign-in: implement `NativeAuth` with a Capacitor Google sign-in
-  plugin. Google blocks its web sign-in inside app WebViews. It needs an
-  Android OAuth client (package `com.chentzer.fincomp` and the signing
-  key's SHA-1).
 - Upload progress: results come back when everything is done. Fine for a
   month of statements (about 6 s); add a per-file callback if it gets slow.
 
 ## Android (Capacitor)
 
-The Android project is in `android/` (app id `com.chentzer.fincomp`).
+The Android project is in `android/` (app id `com.chentzer.fincomp`). It's
+the same web app; only sign-in differs: Google blocks its web sign-in inside
+app WebViews, so `NativeAuth` uses Android's account picker
+(`@capgo/capacitor-social-login`; `MainActivity.java` passes the
+Sheets/Drive permission result back to it).
+
+**Builds:** `.github/workflows/android.yml` builds a signed release APK on
+every push to `main` and puts it on the `android` release:
+https://github.com/chentzer/financing_compiler/releases/download/android/fincomp.apk
+Open that on the phone to install or update (allow "install unknown apps"
+for the browser the first time).
+
+**One-time setup:**
+
+1. Release key: `.signing/fincomp-release.jks` (gitignored; password in
+   `.signing/password.txt`). Back both up: updates must be signed with the
+   same key. Repo secrets `ANDROID_KEYSTORE_BASE64` (the .jks, base64) and
+   `ANDROID_KEYSTORE_PASSWORD`.
+2. Google Cloud console > APIs & Services > Credentials > Create
+   credentials > OAuth client ID > **Android**: package
+   `com.chentzer.fincomp`, SHA-1 of the release key
+   (`keytool -list -v -keystore .signing/fincomp-release.jks -alias fincomp`).
+   Same project as the website's Web client; nothing to copy back, the app
+   uses the Web client ID (repo variable `GOOGLE_CLIENT_ID`).
+
+Local builds (optional) need the Android SDK (Android Studio):
 
 ```
 npm run cap:sync   # vite build + copy web/dist into the Android project
 npm run cap:open   # open it in Android Studio
 ```
-
-Building the APK needs the Android SDK (install Android Studio, which
-sets it up; JDK 21 is already present). Then
-`cd android && ./gradlew assembleDebug` gives
-`android/app/build/outputs/apk/debug/app-debug.apk`.

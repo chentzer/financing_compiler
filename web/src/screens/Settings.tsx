@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react'
+import { CategoryPicker } from '../components/CategoryPicker'
 import { PinGate } from '../components/PinGate'
 import { errorText, useData, useLoad } from '../app/context'
 import { shortDate } from '../app/format'
 import { href } from '../app/router'
 import { Chips, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import {
-  CATEGORIES,
   IMPORTANCE,
   STATEMENT_SOURCES,
   type Passwords,
@@ -17,6 +17,7 @@ import {
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
+  { id: 'categories', label: 'Categories' },
   { id: 'people', label: 'People' },
   { id: 'trips', label: 'Trips' },
   { id: 'payees', label: 'Own payees' },
@@ -34,7 +35,7 @@ export function Settings({ tab = 'rules', account }: { tab?: string; account: Re
           </a>
         ))}
       </nav>
-      {tab === 'passwords' ? <PasswordsTab /> : <SettingsTab tab={tab} />}
+      {tab === 'passwords' ? <PasswordsTab /> : tab === 'categories' ? <CategoriesTab /> : <SettingsTab tab={tab} />}
     </div>
   )
 }
@@ -152,6 +153,52 @@ function SettingsTab({ tab }: { tab: string }) {
   )
 }
 
+/** Your category list (Settings › Lists). Month tabs' "By Category" follow it. */
+function CategoriesTab() {
+  const { backend, changed, toast } = useData()
+  const load = useLoad((b) => b.listCategories())
+  const [editing, setEditing] = useState<{ index: number } | null>(null)
+
+  if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
+  if (!load.data) return <Loading />
+  const cats = load.data
+
+  async function save(next: string[], message: string) {
+    try {
+      await backend.saveCategories(next)
+      toast(message)
+      changed()
+      setEditing(null)
+    } catch (e) {
+      toast(errorText(e))
+    }
+  }
+
+  return (
+    <>
+      <ListCard
+        intro="The choices for Category, in this order. Renaming or removing one doesn't change rows already recorded."
+        items={cats.map((c) => ({ title: c }))}
+        onEdit={(index) => setEditing({ index })}
+        addLabel="Add category"
+      />
+      {editing && (
+        <TextSheet
+          title="Category"
+          label="Name"
+          value={cats[editing.index]}
+          onClose={() => setEditing(null)}
+          onSave={(v) => {
+            const i = editing.index
+            const next = v === null ? cats.filter((_, j) => j !== i) : i < 0 || i >= cats.length ? [...cats, v] : cats.map((c, j) => (j === i ? v : c))
+            save(next, v === null ? 'Category removed' : 'Categories saved')
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 function ListCard({
   intro,
   items,
@@ -245,7 +292,7 @@ function RuleSheet({ rule, trips, onClose, onSave }: { rule?: Rule; trips: strin
               <input value={r.item ?? ''} onChange={(e) => setR({ ...r, item: e.target.value })} />
             </Field>
             <Field label="Category">
-              <Chips label="Category" options={CATEGORIES} value={r.category ?? ''} onChange={(v) => setR({ ...r, category: v })} />
+              <CategoryPicker value={r.category ?? ''} onChange={(v) => setR({ ...r, category: v })} />
             </Field>
             <Field label="Importance">
               <Chips label="Importance" options={IMPORTANCE} value={r.importance ?? ''} onChange={(v) => setR({ ...r, importance: v })} />

@@ -13,6 +13,7 @@
  * - `key` is the hidden row key fincomp writes in column G / R.
  */
 
+/** The starting list; yours lives in Settings › Lists and can grow (see listCategories). */
 export const CATEGORIES = [
   'Bills',
   'Shopping',
@@ -23,7 +24,8 @@ export const CATEGORIES = [
   'Self-Development',
   'Misc',
 ] as const
-export type Category = (typeof CATEGORIES)[number]
+/** Any name in your category list. */
+export type Category = string
 
 export const IMPORTANCE = ['Essential', 'Have to Have', 'Nice to Have', 'Courtesy', 'Regretted'] as const
 export type Importance = (typeof IMPORTANCE)[number]
@@ -195,6 +197,13 @@ export interface Backend {
    * and a typed one is saved after it opens a PDF.
    */
   uploadStatements(files: UploadFile[], passwords?: Passwords): Promise<UploadResult[]>
+
+  /** Your category list (Settings › Lists). */
+  listCategories(): Promise<Category[]>
+  /** Replace the list (add, rename, remove, reorder). Month tabs' "By Category" and dropdowns follow. */
+  saveCategories(names: Category[]): Promise<void>
+  /** Up to 3 categories to offer first on a card, from your past rows and common shop words. */
+  suggestCategories(cardKey: string, item: string): Promise<Category[]>
 
   getSettings(): Promise<Settings>
   saveSettings(settings: Settings): Promise<void>

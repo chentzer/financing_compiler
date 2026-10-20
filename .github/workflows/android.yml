@@ -1,0 +1,80 @@
+name: Build the Android app
+
+# Builds a signed APK and puts it on the "android" release, so the phone
+# can always download the latest from one link:
+# https://github.com/chentzer/financing_compiler/releases/download/android/fincomp.apk
+#
+# Needs repo secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD
+# (the release key; Google sign-in is tied to its SHA-1) and the variable
+# GOOGLE_CLIENT_ID (the Web client ID, also used by the website).
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "src/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Release key missing
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::No ANDROID_KEYSTORE_BASE64 secret, so no APK was built (see web/README.md)."
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build the web app into the Android project
+        if: env.HAS_KEY == 'true'
+        working-directory: web
+        env:
+          VITE_BACKEND: real
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          VITE_ALLOWED_EMAILS: ${{ vars.ALLOWED_EMAILS }}
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      - name: Build the signed APK
+        if: env.HAS_KEY == 'true'
+        working-directory: web/android
+        env:
+          FINCOMP_KEYSTORE: ${{ runner.temp }}/release.jks
+          FINCOMP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$FINCOMP_KEYSTORE"
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/fincomp.apk"
+          rm "$FINCOMP_KEYSTORE"
+
+      - name: Publish to the "android" release
+        if: env.HAS_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android >/dev/null 2>&1 || gh release create android --title "Android app" \
+            --notes "Latest fincomp APK, rebuilt on every change. On the phone: download fincomp.apk and open it to install or update."
+          gh release upload android "$RUNNER_TEMP/fincomp.apk" --clobber

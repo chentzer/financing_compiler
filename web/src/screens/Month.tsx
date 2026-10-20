@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { dayMonth, monthName, rm, signedRm } from '../app/format'
 import { href } from '../app/router'
+import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
-import { CATEGORIES, IMPORTANCE, type MonthSummary, type Row } from '../data/Backend'
+import { IMPORTANCE, type MonthSummary, type Row } from '../data/Backend'
 
 export function Month({ year, month }: { year?: number; month?: number }) {
   const months = useLoad((b) => b.listMonths())
@@ -190,7 +191,7 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
         {isSpend && (
           <>
             <Field label="Category">
-              <Chips label="Category" options={CATEGORIES} value={f.category} onChange={(v) => setF({ ...f, category: v })} />
+              <CategoryPicker value={f.category} onChange={(v) => setF({ ...f, category: v })} />
             </Field>
             <Field label="Importance">
               <Chips label="Importance" options={IMPORTANCE} value={f.importance} onChange={(v) => setF({ ...f, importance: v })} />
