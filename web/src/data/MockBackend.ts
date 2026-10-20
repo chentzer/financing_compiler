@@ -229,6 +229,10 @@ export class MockBackend implements Backend {
     for (const f of files) {
       await wait(500)
       const source = guessSource(f.name)
+      if (f.name.toLowerCase().endsWith('.xlsx')) {
+        results.push({ file: f.name, status: 'ok', source: 'workbook', rowsAdded: 0, message: 'Accounts workbook: nothing to copy in the demo.' })
+        continue
+      }
       if (f.name.toLowerCase().endsWith('.csv')) {
         results.push({ file: f.name, status: 'ok', source: 'splitwise', rowsAdded: 0, message: 'Splitwise export: nothing to add in the demo.' })
         continue

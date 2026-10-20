@@ -397,7 +397,42 @@ export class PyodideBackend implements Backend {
 
   // ---- upload ---------------------------------------------------------------------------
 
-  async uploadStatements(files: UploadFile[], typed: Passwords = {}): Promise<UploadResult[]> {
+  async uploadStatements(all: UploadFile[], typed: Passwords = {}): Promise<UploadResult[]> {
+    // Accounts workbooks you kept by hand (.xlsx) are copied in as they are; the rest are statements.
+    const workbooks = all.filter((f) => /\.xlsx$/i.test(f.name))
+    const files = all.filter((f) => !workbooks.includes(f))
+    const imported: UploadResult[] = []
+    for (const w of workbooks) imported.push(await this.importWorkbook(w))
+    if (!files.length) return imported
+    return [...imported, ...(await this.uploadFiles(files, typed))]
+  }
+
+  /** An old accounts workbook: each month tab's rows onto the same month here, as rows you added. */
+  private async importWorkbook(file: UploadFile): Promise<UploadResult> {
+    try {
+      await this.useSettings()
+      const out = await py<{ months: Record<string, object[]>; years: Record<string, number> }>(
+        'old_accounts', [null], [{ name: file.name, data: file.data }])
+      const titles = Object.keys(out.months)
+      if (!titles.length) {
+        return { file: file.name, status: 'failed', message: 'No month tabs (like "September 2022") with Date / Item / Amount columns found.' }
+      }
+      let added = 0
+      for (const t of titles) {
+        const fin = await this.placeRowsCounted(out.years[t], out.months[t], t)
+        added += fin
+      }
+      const total = titles.reduce((n, t) => n + out.months[t].length, 0)
+      return {
+        file: file.name, status: 'ok', source: 'workbook', rowsAdded: added,
+        message: `${added} of ${total} rows copied into ${titles.join(', ')}${added < total ? ' (the rest were already there)' : ''}.`,
+      }
+    } catch (e) {
+      return { file: file.name, status: 'failed', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  private async uploadFiles(files: UploadFile[], typed: Passwords): Promise<UploadResult[]> {
     const settings = await this.readSettings()
     const saved = (await this.vaultState()) === 'unlocked' ? { ...this.unlocked!.passwords } : {}
     const passwords = { ...saved, ...typed }
@@ -459,8 +494,22 @@ export class PyodideBackend implements Backend {
 
   /** Put rows (or none: just make the tab) on a month or trip tab, without touching To Update. */
   private async placeRows(year: number, rows: object[], target: string): Promise<Book> {
-    return this.syncBook(year, (titles, created) => py<Prep>('prepare_rows', [year, titles, rows, target, created]),
-      (ids, values) => py<Fin>('finish_rows', [year, ids, values]))
+    return (await this.placeRowsWith(year, rows, target)).book
+  }
+
+  private async placeRowsCounted(year: number, rows: object[], target: string): Promise<number> {
+    return (await this.placeRowsWith(year, rows, target)).added
+  }
+
+  private async placeRowsWith(year: number, rows: object[], target: string): Promise<{ book: Book; added: number }> {
+    let added = 0
+    const book = await this.syncBook(year, (titles, created) => py<Prep>('prepare_rows', [year, titles, rows, target, created]),
+      async (ids, values) => {
+        const fin = await py<Fin & { added: number }>('finish_rows', [year, ids, values])
+        added = fin.added
+        return fin
+      })
+    return { book, added }
   }
 
   private async syncBook(

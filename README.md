@@ -106,6 +106,7 @@ flat CSV), `--transfer-window N`, `--no-transfers`, `--upload`, `--no-review`.
 | Touch 'n Go eWallet (wallet + GO+) | PDF (both layouts), password in `passwords.tng` | `*transactions*.pdf`, `tng*.pdf` |
 | Maybank credit card | PDF | `<16-digit card no>_<YYYYMMDD>.pdf` |
 | Splitwise group (Export as spreadsheet) | CSV | its header (Date, Description, Category, Cost, Currency, then members) |
+| Accounts you kept yourself (e.g. "2022 Accounts.xlsx", template layout) | XLSX, in the app | month tabs with Date / Item / ... headers; rows copied as they are |
 | Any bank/wallet with a CSV or XLSX export | CSV/XLSX | a `[[csv]]` block in `config.toml` |
 
 File-name patterns can be changed under `[patterns]` in `config.toml`.

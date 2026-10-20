@@ -297,3 +297,13 @@ def trip_refresh(sheet_ids: dict) -> dict:
 def trips() -> list[dict]:
     return [{"name": t.name, "currency": t.currency, "start": t.start.isoformat(), "end": t.end.isoformat()}
             for t in _state["config"].trips]
+
+
+def old_accounts(files: list[dict]) -> dict:
+    """An accounts workbook kept by hand (template layout), as files[0]:
+    {"months": {title: rows}, "years": {title: year}} to place with
+    prepare_rows/finish_rows."""
+    from .old_accounts import rows_from_workbook
+
+    months = rows_from_workbook(bytes(files[0]["data"]))
+    return {"months": months, "years": {t: parse_month_title(t)[0] for t in months}}

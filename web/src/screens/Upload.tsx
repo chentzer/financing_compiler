@@ -4,7 +4,7 @@ import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
 import { STATEMENT_SOURCES, type UploadFile, type UploadResult } from '../data/Backend'
 
-const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? (key === 'splitwise' ? 'Splitwise' : (key ?? ''))
+const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? ({ splitwise: 'Splitwise', workbook: 'Accounts workbook' } as Record<string, string>)[key ?? ''] ?? key ?? ''
 
 async function read(f: File): Promise<UploadFile> {
   return { name: f.name, data: new Uint8Array(await f.arrayBuffer()) }
@@ -31,8 +31,8 @@ function UploadInner() {
   /** Each pick adds to the list (statements often sit in different folders);
    * picking the same file again replaces it. */
   async function pick(list: FileList | null) {
-    // Statement PDFs, and Splitwise exports (CSV).
-    const pdfs = [...(list ?? [])].filter((f) => f.type === 'application/pdf' || /\.(pdf|csv)$/i.test(f.name))
+    // Statement PDFs, Splitwise exports (CSV), and accounts workbooks you kept by hand (XLSX).
+    const pdfs = [...(list ?? [])].filter((f) => f.type === 'application/pdf' || /\.(pdf|csv|xlsx)$/i.test(f.name))
     if (!pdfs.length) return
     const added = await Promise.all(pdfs.map(read))
     setPicked((prev) => [...prev.filter((p) => !added.some((a) => a.name === p.name)), ...added])
@@ -86,7 +86,8 @@ function UploadInner() {
           Pick statement PDFs from any of your banks or e-wallets, or a Splitwise export (CSV): several at once,
           or a few at a time from different folders (or drop them here). They're read on this device; only the
           results go to your Google Drive. Saved passwords are used automatically. For Splitwise, what you paid is
-          spending and money paid back to you is earnings, at your trip's rate (Settings › Trips).
+          spending and money paid back to you is earnings, at your trip's rate (Settings › Trips). An accounts
+          workbook you kept yourself (.xlsx, like "2022 Accounts") has its month tabs copied in as they are.
         </p>
         {keep.data !== undefined && (
           <p className="muted small">
@@ -97,7 +98,7 @@ function UploadInner() {
         <input
           ref={input}
           type="file"
-          accept="application/pdf,.pdf,text/csv,.csv"
+          accept="application/pdf,.pdf,text/csv,.csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           multiple
           hidden
           onChange={(e) => {

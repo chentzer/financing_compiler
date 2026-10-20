@@ -56,6 +56,9 @@ python -m venv .venv
   then common shop words). Categories are the user's list (Settings ›
   Lists); adding one rewrites month tabs' By Category block and dropdowns
   (`sheetplan.category_refresh`).
+- `old_accounts.py`: an accounts workbook the user kept by hand (template
+  layout, .xlsx; zipfile + xml, no openpyxl) copied into the new layout as
+  hand-added rows with content-based "m-" keys, so re-importing adds nothing.
 - `webapi.py`: the JSON-in/JSON-out functions the web app calls through
   Pyodide.
 - `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.
