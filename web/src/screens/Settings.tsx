@@ -23,6 +23,7 @@ const TABS = [
   { id: 'trips', label: 'Trips' },
   { id: 'payees', label: 'Own payees' },
   { id: 'passwords', label: 'Passwords' },
+  { id: 'uploads', label: 'Uploads' },
 ]
 
 export function Settings({ tab = 'rules', account }: { tab?: string; account: ReactNode }) {
@@ -36,7 +37,15 @@ export function Settings({ tab = 'rules', account }: { tab?: string; account: Re
           </a>
         ))}
       </nav>
-      {tab === 'passwords' ? <PasswordsTab /> : tab === 'categories' ? <CategoriesTab /> : <SettingsTab tab={tab} />}
+      {tab === 'passwords' ? (
+        <PasswordsTab />
+      ) : tab === 'categories' ? (
+        <CategoriesTab />
+      ) : tab === 'uploads' ? (
+        <UploadsTab />
+      ) : (
+        <SettingsTab tab={tab} />
+      )}
     </div>
   )
 }
@@ -151,6 +160,45 @@ function SettingsTab({ tab }: { tab: string }) {
         />
       )}
     </>
+  )
+}
+
+/** What happens to uploaded files. Shared by all your devices (Drive App Data). */
+function UploadsTab() {
+  const { backend, toast } = useData()
+  const keep = useLoad((b) => b.getKeepPdfCopies())
+  const [on, setOn] = useState<boolean>()
+  const value = on ?? keep.data ?? false
+
+  if (keep.error) return <ErrorBox message={keep.error} retry={keep.reload} />
+  if (keep.data === undefined) return <Loading />
+
+  async function toggle(next: boolean) {
+    setOn(next)
+    try {
+      await backend.setKeepPdfCopies(next)
+      toast(next ? 'PDF copies will be kept' : 'PDFs will be discarded after reading')
+    } catch (e) {
+      setOn(!next)
+      toast(errorText(e))
+    }
+  }
+
+  return (
+    <section className="card stack">
+      <label className="toggle">
+        <input type="checkbox" checked={value} onChange={(e) => toggle(e.target.checked)} />
+        <span className="switch" aria-hidden />
+        <span>
+          Keep a copy of each PDF in Drive › fincomp › statements
+          <span className="muted small"> · off: the PDF is discarded after reading</span>
+        </span>
+      </label>
+      <p className="muted small">
+        Copies go in a folder per bank (TNG, Maybank, Credit Card…). Either way, the transactions read from them are
+        saved in the hidden Ledger of fincomp Settings. This setting applies on all your devices.
+      </p>
+    </section>
   )
 }
 

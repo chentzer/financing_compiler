@@ -72,7 +72,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           <h1>{TITLES[route.name]}</h1>
           {demo && <span className="pill warn">Demo data</span>}
         </header>
-        <div className="content">
+        <div className={route.name === 'month' ? 'content wide' : 'content'}>
           {route.name === 'home' && <Home />}
           {route.name === 'upload' && <Upload />}
           {route.name === 'cards' && <Cards />}
