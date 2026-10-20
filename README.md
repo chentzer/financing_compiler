@@ -44,8 +44,9 @@ all your devices.
 2. **APIs & Services › Library**: enable **Google Sheets API** and **Google
    Drive API**.
 3. **Google Auth Platform / OAuth consent screen**: External. Add your
-   Google account under **Audience › Test users**. Scopes: `spreadsheets`,
-   `drive.file`, `drive.appdata`.
+   Google account under **Audience › Test users**. Scopes: `drive.file`
+   (only files the app made, its spreadsheets included) and `drive.appdata`.
+   The app never asks for access to all your spreadsheets.
 4. **Credentials › Create credentials › OAuth client ID › Web
    application**. Authorised JavaScript origins:
    `https://chentzer.github.io` and `http://localhost:5173`.

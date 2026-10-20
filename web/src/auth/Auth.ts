@@ -8,7 +8,9 @@
 export const GOOGLE_SCOPES = [
   'openid',
   'email',
-  'https://www.googleapis.com/auth/spreadsheets',
+  'profile', // your name: finds your column in a Splitwise export
+  // Only files this app created ("2026 Accounts", "fincomp Settings"): the
+  // Sheets API accepts this instead of access to all your spreadsheets.
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/drive.appdata',
 ]

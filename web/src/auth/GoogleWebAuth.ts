@@ -128,8 +128,17 @@ export class GoogleWebAuth implements Auth {
 
   /** From a click: get a fresh token (no consent screen again) and let waiting calls go on. */
   async reconnect(): Promise<void> {
-    await this.request('')
+    const t = await this.request('')
     this.release()
+    // Pick up your name if you first signed in before the app asked for it.
+    if (this.user && !this.user.name) {
+      try {
+        this.user = { ...this.user, ...(await this.fetchUser(t.access_token)) }
+        localStorage.setItem(USER_KEY, JSON.stringify(this.user))
+      } catch {
+        /* keep the email-only profile */
+      }
+    }
   }
 
   private release(): void {

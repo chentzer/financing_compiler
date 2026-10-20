@@ -55,3 +55,23 @@ def test_tng_into_accounts(tmp_path):
         ("spend", "Transit Pass", 50.00),
         ("spend", "BrownDust2", 71.91),
     ]
+
+
+def v1(date_, type_, desc, amount, balance, status="Success"):
+    return {"Date": date_, "Status": status, "Type": type_, "Reference": "R", "Description": desc, "Details": "",
+            "Amount": amount, "Balance": balance}
+
+
+def test_tolls_and_unknown_types_follow_the_wallet_balance():
+    from fincomp.parsers.tng import parse_v1_rows
+
+    txs = parse_v1_rows([
+        v1("8/8/2026", "Reload", "Quick Reload Payment (via GO+ Balance)", "RM2.30", "RM2.30"),
+        v1("8/8/2026", "PayDirect Payment", "SOME TOLL PLAZA", "RM2.30", "RM0.00"),  # a toll: spending
+        v1("9/8/2026", "Reload", "Quick Reload Payment (via GO+ Balance)", "RM5.00", "RM5.00"),
+        v1("9/8/2026", "Mystery Charge", "SOME NEW THING", "RM4.00", "RM1.00"),  # a type TNG adds later
+        v1("10/8/2026", "Receive from Wallet", "BOB LIM", "RM10.00", "RM11.00"),
+    ])
+    assert [(t.description, t.amount) for t in txs if not t.internal] == [
+        ("SOME TOLL PLAZA", -2.30), ("SOME NEW THING", -4.00), ("BOB LIM", 10.00),
+    ]

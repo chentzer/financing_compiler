@@ -31,11 +31,13 @@ GOPLUS = "GO+"
 V1_COLUMNS = ["Date", "Status", "Type", "Reference", "Description", "Details", "Amount", "Balance"]
 V2_COLUMNS = ["Details", "Type", "Reference", "Amount"]
 
-# v1 types that take money out of the wallet; anything else is money in.
+# v1 types that take money out of the wallet; anything else is money in,
+# unless the Wallet Balance says otherwise (see parse_v1_rows).
 # Compared with spaces removed and upper-cased, because camelot sometimes
 # splits words ("DUITNOW_TRANS FERTO").
 WALLET_OUT_TYPES = {
     "PAYMENT",
+    "PAYDIRECTPAYMENT",  # tolls, parking
     "TRANSFERTOWALLET",
     "RFIDPAYMENT",
     "DUITNOWQRTNGD",
@@ -117,6 +119,7 @@ def parse_v1_rows(rows: list[dict[str, str]], file: str = "", holder: str = "") 
     """The v1 rules, on one dict per transaction keyed by V1_COLUMNS."""
     holder = holder.strip().lower()
     transactions = []
+    balance: float | None = None  # wallet balance after the previous row (rows are oldest first)
     for row in rows:
         try:
             when = datetime.strptime(row["Date"], "%d/%m/%Y").date()
@@ -158,6 +161,14 @@ def parse_v1_rows(rows: list[dict[str, str]], file: str = "", holder: str = "") 
                 description = tx_type.replace("_", " ").title()  # e.g. TRANSIT_PASS
         if status.lower() not in ("", "success"):
             internal = True  # failed or reversed: no money moved
+        elif account == WALLET:
+            # The balance moving by exactly the amount settles the direction,
+            # so a type not listed above can't turn spending into earnings.
+            after = _money(row.get("Balance", ""))
+            if after is not None:
+                if balance is not None and abs(abs(after - balance) - amount) < 0.005:
+                    signed = amount if after > balance else -amount
+                balance = after
 
         transactions.append(
             Transaction(

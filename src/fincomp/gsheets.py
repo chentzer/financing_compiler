@@ -18,8 +18,8 @@ from .accounts import Tab
 from .config import Config, GoogleConfig
 
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    # Only files this app creates; it can't see the rest of your Drive.
+    # Only files this app creates (the Sheets API accepts it too); it can't
+    # see or open your other spreadsheets or the rest of your Drive.
     "https://www.googleapis.com/auth/drive.file",
     # The app's private App Data folder, where statement passwords are kept.
     "https://www.googleapis.com/auth/drive.appdata",
