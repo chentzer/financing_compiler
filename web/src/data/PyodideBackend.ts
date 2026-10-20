@@ -8,7 +8,7 @@
  *   "<year> Accounts"   month tabs, trip tabs, To Update, Year End Summary
  *   App Data folder     passwords.vault.json (statement passwords, encrypted with your PIN),
  *                       prefs.json (e.g. whether to keep PDF copies)
- *   fincomp/statements  copies of the uploaded PDFs, only if you turned that on
+ *   fincomp/statements  copies of the uploaded PDFs in a folder per bank, only if you turned that on
  *
  * What to write is decided in Python (sheetplan.py via webapi.py); this
  * file only moves data between Pyodide and the Google APIs.
@@ -42,6 +42,11 @@ const SETTINGS_TITLE = 'fincomp Settings'
 const VAULT_FILE = 'passwords.vault.json'
 const LEGACY_PASSWORDS_FILE = 'passwords.json'
 const PREFS_FILE = 'prefs.json'
+/** Subfolder of Drive › fincomp › statements for each parser's PDFs. */
+const COPY_FOLDERS: Record<string, string> = {
+  tng: 'TNG', ryt: 'Ryt Bank', maybank_sa: 'Maybank', maybank_cc: 'Credit Card', aeon_credit: 'Credit Card',
+  aeon: 'AEON Bank', gx: 'GX Bank',
+}
 const TO_UPDATE = 'To Update'
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
@@ -310,7 +315,12 @@ export class PyodideBackend implements Backend {
       if (changed && this.unlocked) await this.savePasswords(learned)
       await this.writeLedger(settings.id, out.ledger)
       for (const year of out.years) await this.syncYear(year)
-      if (await this.getKeepPdfCopies()) await this.keepCopies(files.filter((f) => okFiles.some((o) => o.name === f.name)))
+      if (await this.getKeepPdfCopies()) {
+        await this.keepCopies(files.flatMap((f) => {
+          const o = okFiles.find((x) => x.name === f.name)
+          return o ? [{ file: f, parser: o.parser }] : []
+        }))
+      }
     }
 
     const tail = okFiles.length
@@ -367,11 +377,16 @@ export class PyodideBackend implements Backend {
     await this.g.batch(book.id, fin.requests)
   }
 
-  /** Copies of the PDFs in Drive › fincomp › statements (best effort). */
-  private async keepCopies(files: UploadFile[]): Promise<void> {
+  /** Copies of the PDFs in Drive › fincomp › statements › <bank> (best effort). */
+  private async keepCopies(files: { file: UploadFile; parser: string }[]): Promise<void> {
     try {
-      const folder = await this.g.folder('statements', await this.g.folder('fincomp'))
-      for (const f of files) await this.g.putFile(folder, f.name, 'application/pdf', f.data)
+      const root = await this.g.folder('statements', await this.g.folder('fincomp'))
+      const folders = new Map<string, string>()
+      for (const { file, parser } of files) {
+        const name = COPY_FOLDERS[parser] ?? 'Other'
+        if (!folders.has(name)) folders.set(name, await this.g.folder(name, root))
+        await this.g.putFile(folders.get(name)!, file.name, 'application/pdf', file.data)
+      }
     } catch {
       /* the accounts are already written; a missing copy isn't worth failing over */
     }

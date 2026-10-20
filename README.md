@@ -33,8 +33,9 @@ Also in your Drive:
 The PDFs themselves are read on your device and discarded once the upload
 is done; only the transactions read from them are saved (in the Ledger
 above). Turn on "Keep a copy of each PDF" on the Upload screen to also keep
-them in **Drive › fincomp › statements** (a setting shared by all your
-devices).
+them in **Drive › fincomp › statements**, one folder per bank (TNG, Ryt
+Bank, Maybank, Credit Card, AEON Bank, GX Bank). The setting is shared by
+all your devices.
 
 ### One-time Google setup (for whoever runs the site)
 
