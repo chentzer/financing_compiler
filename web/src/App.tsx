@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Auth, User } from './auth/Auth'
 import { DataProvider, errorText, useLoad } from './app/context'
 import { href, useRoute, type Route } from './app/router'
@@ -20,6 +20,8 @@ const TITLES: Record<Route['name'], string> = {
 export default function App({ auth }: { auth: Auth }) {
   const [user, setUser] = useState<User | null>(() => auth.currentUser())
   const backend = useMemo(() => (user ? createBackend(auth) : null), [auth, user])
+  const [reconnect, setReconnect] = useState(false)
+  useEffect(() => auth.onReconnectNeeded?.(setReconnect), [auth])
 
   if (!user || !backend) return <SignIn auth={auth} onSignedIn={setUser} />
 
@@ -38,6 +40,7 @@ export default function App({ auth }: { auth: Auth }) {
   return (
     <DataProvider backend={backend}>
       <Shell account={account} demo={auth.kind === 'demo'} />
+      {reconnect && <Reconnect auth={auth} user={user} onSignOut={() => auth.signOut().then(() => setUser(null))} />}
     </DataProvider>
   )
 }
@@ -143,6 +146,49 @@ function SignIn({ auth, onSignedIn }: { auth: Auth; onSignedIn(u: User): void })
         </button>
         {auth.kind === 'demo' && <p className="muted small">Demo mode: no Google account is used, the data is made up.</p>}
         {error && <p className="error-text">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Google needs a click to hand out a new token (page reopened, or the hour ran out). */
+function Reconnect({ auth, user, onSignOut }: { auth: Auth; user: User; onSignOut(): void }) {
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="sheet-backdrop">
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="Continue with Google">
+        <div className="stack">
+          <h2>Continue with Google</h2>
+          <p className="muted">
+            For your security, Google access lasts about an hour. Continue as <strong>{user.email}</strong> to keep
+            going.
+          </p>
+          {error && <p className="error-text">{error}</p>}
+          <div className="btn-row end">
+            <button className="btn ghost" onClick={onSignOut} disabled={busy}>
+              Sign out
+            </button>
+            <button
+              className="btn google"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                setError(undefined)
+                try {
+                  await auth.reconnect?.()
+                } catch (e) {
+                  setError(errorText(e))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              <GoogleG />
+              {busy ? 'Connecting…' : 'Continue'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
