@@ -63,12 +63,18 @@ gspread (Pyodide check: see README).
 
 ## Accounts layout rules
 
-- Keep the template's positions: Spendings A-F, Earnings N-Q, Category
-  summary H-I, Importance summary K-L, Final in T6. Hidden keys in G and R.
-- Trip tabs copy the user's 2023 trip sheet: RM spending A-F (key in G),
-  trip-currency cash H-M and money received Q-T (both hand-filled, never
-  written by fincomp), summary O-P with the trip total in P8. Month T5 =
-  trips ending that month, Final (T6) subtracts it.
+- Positions (column constants in accounts.py; the user changed them in
+  Oct 2026): Spendings A-G (Date, Item, Category, Amount, Importance,
+  Source, Remarks), Category summary J-K, Importance summary M-N, Earnings
+  P-T (Date, Item, Amount, Source, Remarks), summary W-X with Final in X6.
+  Hidden keys in H and U; blank columns I, L, O, V. Section headers are
+  coloured. Source = bank/wallet; Remarks starts as the statement text.
+- Trip tabs: RM spending A-G (key in H), spending in the trip currency J-O
+  and money received T-W (no keys; the app can append to J-O), summary Q-R
+  with the trip total in R8. Month X5 = trips ending that month, Final (X6)
+  subtracts it.
+- Older tabs are converted by inserting columns (sheetplan.upgrade_*), never
+  by rewriting rows. Rows the app adds by hand get "m-..." keys.
 - Never reorder or write to tabs fincomp doesn't manage; insert new tabs
   before the next managed tab in date order.
 - Sheets sync is append-only except for the user's own answers and edits:
@@ -86,7 +92,8 @@ gspread (Pyodide check: see README).
    else (family included).
 3. Everything that isn't excluded is recorded: Item = the purpose when the
    statement gives one, otherwise the shop name or "Transfer"/"QR
-   payment"; Remarks = "To <name>"/"From <name>"; Category from rules or
+   payment"; Source = bank/wallet; Remarks = the statement text (the
+   "To <name>"/"From <name>" text is on the To Update card); Category from rules or
    blank. Never hold rows back. Rows missing a purpose and/or Category get
    a To Update card, shown one at a time right after an upload; skipped
    cards stay in the "To Update" tab. Editing the month tab directly closes

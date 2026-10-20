@@ -102,32 +102,38 @@ def test_trip_without_config_stays_on_month_tab():
 
 def test_month_layout_positions():
     cells = month_layout(Config(), open_ended=True)
-    assert cells["A2"] == "Date" and cells["F2"] == "Remarks" and cells["N2"] == "Date"
-    assert (cells["H2"], cells["I2"], cells["K2"], cells["S2"]) == ("Category", "Spent (RM)", "Importance", "Summary")
-    assert cells["H3"] == "Bills" and cells["I3"] == '=SUMIF($C$3:$C,"Bills",$D$3:$D)'
-    assert cells["H11"] == "Not set" and cells["H12"] == "Total"
-    assert cells["K3"] == "Essential" and cells["K9"] == "Total"
-    assert cells["S5"] == "Trips" and cells["S6"] == "Final"
+    assert [cells[f"{c}2"] for c in "ABCDEFGH"] == [
+        "Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key"]
+    assert [cells[f"{c}2"] for c in "PQRSTU"] == ["Date", "Item", "Amount (RM)", "Source", "Remarks", "Key"]
+    # A blank column between sections.
+    assert not any(f"{c}2" in cells for c in "ILOV")
+    assert (cells["J2"], cells["K2"], cells["M2"], cells["W2"]) == ("Category", "Spent (RM)", "Importance", "Summary")
+    assert cells["J3"] == "Bills" and cells["K3"] == '=SUMIF($C$3:$C,"Bills",$D$3:$D)'
+    assert cells["J11"] == "Not set" and cells["J12"] == "Total"
+    assert cells["M3"] == "Essential" and cells["M9"] == "Total"
+    assert cells["X3"] == "=SUM($R$3:$R)" and cells["W5"] == "Trips" and cells["W6"] == "Final"
 
 
 def test_trip_layout_matches_japan_sheet():
     cells = trip_layout(JAPAN, Config(), open_ended=True)
     assert cells["A1"] == "Japan Trip" and cells["C1"] == '=HYPERLINK("https://example.com/plan","Trip Link")'
-    assert [cells[f"{c}3"] for c in "ABCDEF"] == ["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks"]
-    assert cells["K3"] == "Amount (Yen)" and cells["S3"] == "Amount (Yen)" and cells["R3"] == "Item"
+    assert [cells[f"{c}3"] for c in "ABCDEFG"] == [
+        "Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks"]
+    assert cells["M3"] == "Amount (Yen)" and cells["V3"] == "Amount (Yen)" and cells["U3"] == "Item"
+    assert cells["R5"] == "=SUM($M$4:$M)" and cells["R10"] == "=SUM($V$4:$V)"
     # Money Exchange is paid in RM but spent as yen, so it isn't counted twice.
-    assert cells["P4"] == '=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
-    assert cells["P6"].startswith('=IFERROR(SUMIF($B$4:$B,"Money Exchange"')
-    assert cells["P8"] == "=P4+P7"
+    assert cells["R4"] == '=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
+    assert cells["R6"].startswith('=IFERROR(SUMIF($B$4:$B,"Money Exchange"')
+    assert cells["R8"] == "=R4+R7"
     domestic = trip_layout(Trip("Penang", date(2026, 1, 1), date(2026, 1, 3)), Config(), open_ended=True)
-    assert domestic["P8"] == "=P4" and "K3" not in domestic
+    assert domestic["R8"] == "=R4" and "M3" not in domestic
 
 
 def test_final_subtracts_trip_in_its_end_month():
     links = month_links(["October 2026", "November 2026", "December 2026"], [JAPAN], {"Japan Trip"})
-    assert links["October 2026"] == {"T5": 0, "T6": "=T3-T4-T5"}
-    assert links["November 2026"] == {"T5": "='Japan Trip'!P8", "T6": "='October 2026'!T6+T3-T4-T5"}
-    assert links["December 2026"]["T5"] == 0
+    assert links["October 2026"] == {"X5": 0, "X6": "=X3-X4-X5"}
+    assert links["November 2026"] == {"X5": "='Japan Trip'!R8", "X6": "='October 2026'!X6+X3-X4-X5"}
+    assert links["December 2026"]["X5"] == 0
 
 
 def test_local_xlsx(tmp_path: Path):
@@ -137,15 +143,16 @@ def test_local_xlsx(tmp_path: Path):
     wb = openpyxl.load_workbook(path)
     assert wb.sheetnames == ["To Update", "March 2026", "July 2026", "August 2026", "November 2026", "Japan Trip", "Year End Summary"]
     ws = wb["July 2026"]
-    assert [ws[f"{c}3"].value for c in "BCDE"] == ["GRAB* RIDE", "Transport", 12.0, "Essential"]
-    assert [ws[f"{c}3"].value for c in "OPQ"] == ["SALARY", 3000.0, "CIMB"]
-    assert ws.column_dimensions["G"].hidden
-    assert wb["August 2026"]["T6"].value == "='July 2026'!T6+T3-T4-T5"
-    assert wb["November 2026"]["T5"].value == "='Japan Trip'!P8"
+    assert [ws[f"{c}3"].value for c in "BCDEG"] == ["GRAB* RIDE", "Transport", 12.0, "Essential", "GRAB* RIDE"]
+    assert [ws[f"{c}3"].value for c in "QR"] == ["SALARY", 3000.0]
+    assert (ws["F3"].value, ws["S3"].value) == ("TNG eWallet", "CIMB")  # Source: the bank or wallet
+    assert ws.column_dimensions["H"].hidden and ws.column_dimensions["U"].hidden
+    assert wb["August 2026"]["X6"].value == "='July 2026'!X6+X3-X4-X5"
+    assert wb["November 2026"]["X5"].value == "='Japan Trip'!R8"
     trip = wb["Japan Trip"]
     assert [trip[f"{c}4"].value for c in "BD"] == ["AIRASIA BERHAD", 225.0]
     summary = wb["Year End Summary"]
-    assert summary["B2"].value.endswith("+B4") and summary["B4"].value == "='Japan Trip'!P8"
+    assert summary["B2"].value.endswith("+B4") and summary["B4"].value == "='Japan Trip'!R8"
 
 
 # ---- Google Sheets sync against a fake gspread --------------------------
@@ -226,10 +233,12 @@ def test_first_upload_creates_year_sheet(fake):
     assert titles(sheet) == ["To Update", "July 2026", "August 2026", "Year End Summary"]
     assert (result.added, result.already) == (7, 0)
     w = writes(sheet)
-    assert w["'July 2026'!A3:G7"][0][:5] == ["2026-07-02", "GRAB* RIDE", "Transport", 12.0, "Essential"]
-    assert w["'July 2026'!N3:R3"][0][:3] == ["2026-07-01", "SALARY", 3000.0]
-    assert w["'August 2026'!T6"] == [["='July 2026'!T6+T3-T4-T5"]]
-    assert w["'July 2026'!H3"] == [["Bills"]]
+    assert w["'July 2026'!A3:H7"][0][:5] == ["2026-07-02", "GRAB* RIDE", "Transport", 12.0, "Essential"]
+    assert w["'July 2026'!P3:U3"][0][:3] == ["2026-07-01", "SALARY", 3000.0]
+    assert w["'August 2026'!X6"] == [["='July 2026'!X6+X3-X4-X5"]]
+    assert w["'July 2026'!J3"] == [["Bills"]]
+    # Section headers are coloured.
+    assert any("backgroundColor" in str(r) for r in sheet.requests)
     assert any("sortRange" in r for r in sheet.requests)
 
 
@@ -242,20 +251,20 @@ def test_rerun_appends_only_new_rows_and_keeps_edits(fake):
     # The sheet now holds the first upload, with a category picked by hand
     # and a cash row typed in by hand (no key).
     july_spend = [r for r in rows if r.date.month == 7 and r.kind == "spend"]
-    sheet.values["'July 2026'!A3:G"] = [[46000, r.item, "Misc", r.amount, "", "", r.key] for r in july_spend] + [
-        [46001, "Cash: nasi lemak", "Food", 6, "Essential", "", ""]
+    sheet.values["'July 2026'!A3:H"] = [[46000, r.item, "Misc", r.amount, "", "", "", r.key] for r in july_spend] + [
+        [46001, "Cash: nasi lemak", "Food", 6, "Essential", "", "", ""]
     ]
     july_earn = [r for r in rows if r.date.month == 7 and r.kind == "earn"]
-    sheet.values["'July 2026'!N3:R"] = [[46000, r.item, r.amount, "", r.key] for r in july_earn]
+    sheet.values["'July 2026'!P3:U"] = [[46000, r.item, r.amount, "", "", r.key] for r in july_earn]
     aug = [r for r in rows if r.date.month == 8]
-    sheet.values["'August 2026'!A3:G"] = [[46000, r.item, "", r.amount, "", "", r.key] for r in aug]
+    sheet.values["'August 2026'!A3:H"] = [[46000, r.item, "", r.amount, "", "", "", r.key] for r in aug]
 
     more = sample() + [tx(date(2026, 7, 20), -30.0, "GRAB* FOOD")]
     (result,) = gsheets.upload(plan(build_rows(more, cfg), cfg), cfg)
 
     w = writes(sheet)
     # One new row, below the 6 existing ones (rows 3-8); nothing above rewritten.
-    assert w["'July 2026'!A9:G9"][0][:3] == ["2026-07-20", "GRAB* FOOD", "Transport"]
+    assert w["'July 2026'!A9:H9"][0][:3] == ["2026-07-20", "GRAB* FOOD", "Transport"]
     assert not any(r.startswith("'July 2026'!A3") for r in w)
     assert (result.added, result.already) == (1, 7)
     assert titles(sheet) == ["To Update", "July 2026", "August 2026", "Year End Summary"]
@@ -272,10 +281,10 @@ def test_trip_tab_slots_in_without_moving_your_tabs(fake):
         "To Update", "January 2026", "Chinese New Year", "March 2026", "November 2026", "Japan Trip", "December 2026", "Year End Summary",
     ]
     w = writes(sheet)
-    assert w["'Japan Trip'!A4:G7"][0][:2] == ["2026-08-17", "AIRASIA BERHAD"]
+    assert w["'Japan Trip'!A4:H7"][0][:2] == ["2026-08-17", "AIRASIA BERHAD"]
     assert w["'Japan Trip'!A1"] == [["Japan Trip"]]
-    assert w["'November 2026'!T5"] == [["='Japan Trip'!P8"]]
-    assert w["'December 2026'!T6"] == [["='November 2026'!T6+T3-T4-T5"]]
+    assert w["'November 2026'!X5"] == [["='Japan Trip'!R8"]]
+    assert w["'December 2026'!X6"] == [["='November 2026'!X6+X3-X4-X5"]]
     assert "Chinese New Year" not in " ".join(w)  # never written to
 
 
@@ -285,7 +294,7 @@ def test_trip_added_later_skips_rows_already_on_month_tab(fake):
     gsheets.upload(plan(rows, cfg), cfg)
     sheet = fake.sheets["2026 Accounts"]
     nov = [r for r in rows if r.date.month == 11 and r.kind == "spend"]
-    sheet.values["'November 2026'!A3:G"] = [[46000, r.item, "", r.amount, "", "", r.key] for r in nov]
+    sheet.values["'November 2026'!A3:H"] = [[46000, r.item, "", r.amount, "", "", "", r.key] for r in nov]
 
     # Now the trip is configured: rows already on November aren't duplicated.
     cfg = config(trips=[JAPAN])

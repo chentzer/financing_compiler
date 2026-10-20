@@ -56,9 +56,9 @@ export interface Row {
   category: Category | ''
   /** Spending only; "" = not filled in. */
   importance: Importance | ''
-  /** "To <name>" / "From <name>". */
+  /** Your note; starts as the statement's own text. */
   remarks: string
-  /** Bank or wallet, e.g. "Maybank", "TNG". */
+  /** Bank or wallet, e.g. "Maybank", "TNG"; or anything you type (e.g. "Cash"). */
   source: string
   /** Trip name when this spending lives on a trip tab. */
   trip?: string
@@ -81,7 +81,24 @@ export interface CardAnswer {
   sameForEvery?: boolean
 }
 
-export type RowEdit = Partial<Pick<Row, 'item' | 'category' | 'importance' | 'remarks'>>
+export type RowEdit = Partial<Pick<Row, 'item' | 'category' | 'importance' | 'remarks' | 'source'>>
+
+/** A transaction typed in by hand. */
+export interface NewRow {
+  kind: Kind
+  date: string
+  item: string
+  /** Positive; RM, or the trip's currency when `inTripCurrency`. */
+  amount: number
+  category?: Category | ''
+  importance?: Importance | ''
+  source?: string
+  remarks?: string
+  /** Put it on this trip (spending only); otherwise the month of its date. */
+  trip?: string
+  /** The amount is in the trip's own currency (its "Spending in <currency>" block). */
+  inTripCurrency?: boolean
+}
 
 export interface Month {
   year: number
@@ -182,6 +199,11 @@ export interface Backend {
   monthSummary(year: number, month: number): Promise<MonthSummary>
   monthRows(year: number, month: number): Promise<Row[]>
   editRow(key: string, fields: RowEdit): Promise<void>
+
+  /** Add a transaction yourself; it can be edited and moved like any other. */
+  addRow(row: NewRow): Promise<void>
+  /** Move a spending row to a trip, or back to its month (`trip` null). */
+  moveRow(key: string, trip: string | null): Promise<void>
 
   /** Open To Update cards, oldest first. */
   listCards(): Promise<Card[]>

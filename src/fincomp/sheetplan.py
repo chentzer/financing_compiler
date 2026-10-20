@@ -24,14 +24,20 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from .accounts import (
-    FINAL_CELL, FIRST_ROW, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TRIPS_CELL, YEAR_SUMMARY, AccountRow, Tab,
-    month_layout, month_links, parse_month_title, quote, tab_order, to_update_table, trip_layout, year_summary_cells,
+    CASH_COLS, CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, FINAL_CELL, FIRST_ROW, IMP_COLS, RECEIVED_COLS, SPEND_COLS,
+    SPEND_KEY, SUMMARY_COLS, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TRIP_SUMMARY_COLS, TRIPS_CELL, YEAR_SUMMARY,
+    AccountRow, Tab, month_layout, month_links, parse_month_title, quote, tab_order, to_update_table, trip_layout,
+    year_summary_cells,
 )
 from .config import Config
 
 TAB_ROWS = 1000
-SPEND_FIELDS = {"item": "B", "category": "C", "importance": "E", "remarks": "F"}
-EARN_FIELDS = {"item": "O", "remarks": "Q"}
+TAB_COLS = 26
+SPEND_FIELDS = {"date": "A", "item": "B", "category": "C", "amount": "D", "importance": "E", "source": "F",
+                "remarks": "G"}
+EARN_FIELDS = {"date": "P", "item": "Q", "amount": "R", "source": "S", "remarks": "T"}
+GAP_COLS = {"month": "ILOV", "trip": "IPS"}  # blank columns between sections
+CLEARABLE = {"remarks", "source"}  # fields an edit may empty
 
 
 @dataclass
@@ -109,9 +115,9 @@ def month_and_trip_tabs(order: list[str], year: int, config: Config) -> tuple[li
 def data_ranges(months: list[str], trips: list[str]) -> list[str]:
     ranges = []
     for t in months:
-        ranges += [f"{quote(t)}!A3:G", f"{quote(t)}!N3:R"]
+        ranges += [f"{quote(t)}!A3:H", f"{quote(t)}!P3:U"]
     for t in trips:
-        ranges.append(f"{quote(t)}!A4:G")
+        ranges.append(f"{quote(t)}!A4:H")
     return ranges
 
 
@@ -120,8 +126,8 @@ def locate(values: dict[str, list[list]]) -> dict[str, tuple[str, str, int, list
     located = {}
     for rng, rows in values.items():
         tab_q = rng.rsplit("!", 1)[0]
-        kind, key_index = ("earn", 4) if rng.endswith("!N3:R") else ("spend", 6)
-        first = 4 if rng.endswith("!A4:G") else 3
+        kind, key_index = ("earn", 5) if rng.endswith("!P3:U") else ("spend", 7)
+        first = 4 if rng.endswith("!A4:H") else 3
         for i, r in enumerate(rows):
             if len(r) > key_index and r[key_index]:
                 located[str(r[key_index])] = (tab_q, kind, first + i, r)
@@ -139,7 +145,7 @@ def prepare(year: int, titles: list[str], tabs: list[Tab], config: Config, creat
     for tab in tabs:
         if tab.title not in order:
             i = insert_index(order, tab.order, config)
-            add.append(TabToAdd(tab.title, i, TAB_ROWS, 20))
+            add.append(TabToAdd(tab.title, i, TAB_ROWS, TAB_COLS))
             order.insert(i, tab.title)
             new_tabs.add(tab.title)
     if YEAR_SUMMARY not in order:
@@ -166,7 +172,10 @@ def finish(
     tabs: list[Tab],
     config: Config,
     answers: dict[str, dict] | None = None,
+    to_update: bool = True,
 ) -> Finished:
+    """`to_update=False` when `tabs` are only a few rows placed by hand (add a
+    transaction, move one to a trip): the To Update tab is left as it is."""
     answers = answers or {}
     months, trips = month_and_trip_tabs(prepared.order, year, config)
     filled = {rng: values.get(rng, []) for rng in prepared.reads}
@@ -206,9 +215,9 @@ def finish(
         added += len(fresh)
 
         # Append new rows under what's there, then sort by date.
-        blocks = [("spend", "A", "G", f"{q}!A{tab.first_row}:G" if tab.kind == "trip" else f"{q}!A3:G")]
+        blocks = [("spend", "A", "H", f"{q}!A{tab.first_row}:H" if tab.kind == "trip" else f"{q}!A3:H")]
         if tab.kind == "month":
-            blocks.append(("earn", "N", "R", f"{q}!N3:R"))
+            blocks.append(("earn", "P", "U", f"{q}!P3:U"))
         for kind, c0, c1, rng in blocks:
             block = [r for r in fresh if r.kind == kind]
             if not block:
@@ -236,11 +245,13 @@ def finish(
     table = to_update_table(tabs, resolved)
     if TO_UPDATE in prepared.new_tabs:
         formats += to_update_formats(sheet_ids[TO_UPDATE])
-    data.append({
-        "range": f"{quote(TO_UPDATE)}!A1:H{len(table)}",
-        "values": [[cell(v) for v in row] for row in table],
-    })
-    clear = [f"{quote(TO_UPDATE)}!A{len(table) + 1}:H{TAB_ROWS}"]
+    clear = []
+    if to_update or TO_UPDATE in prepared.new_tabs:
+        data.append({
+            "range": f"{quote(TO_UPDATE)}!A1:H{len(table)}",
+            "values": [[cell(v) for v in row] for row in table],
+        })
+        clear = [f"{quote(TO_UPDATE)}!A{len(table) + 1}:H{TAB_ROWS}"]
 
     # Removals bottom-up so the other row numbers stay right, then sorts.
     requests = formats + [
@@ -258,19 +269,20 @@ def finish(
 
 
 def set_cells(tab_q: str, kind: str, row: int, fields: dict) -> list[dict]:
-    """values:batchUpdate entries writing only the given fields of one row."""
+    """values:batchUpdate entries writing only the given fields of one row
+    (a field given as "" clears that cell)."""
     cols = SPEND_FIELDS if kind == "spend" else EARN_FIELDS
     return [
-        {"range": f"{tab_q}!{col}{row}", "values": [[text_value(fields[name])]]}
+        {"range": f"{tab_q}!{col}{row}", "values": [[cell(fields[name])]]}
         for name, col in cols.items()
-        if fields.get(name)
+        if fields.get(name) is not None and (fields[name] != "" or name in CLEARABLE)
     ]
 
 
 def remove_row_range(sheet_id: int, kind: str, row: int) -> tuple[int, int, int, int]:
-    """Only the row's own block (Spendings A-G or Earnings N-R): the other
+    """Only the row's own block (Spendings A-H or Earnings P-U): the other
     block shares the sheet row."""
-    c0, c1 = ("A", "G") if kind == "spend" else ("N", "R")
+    c0, c1 = ("A", "H") if kind == "spend" else ("P", "U")
     return sheet_id, row, col_index(c0), col_index(c1) + 1
 
 
@@ -310,28 +322,18 @@ def sort_request(sheet_id: int, first_row: int, c0: int, c1: int, n_rows: int) -
 def format_requests(sheet_id: int, tab: Tab, config: Config) -> list[dict]:
     first = tab.first_row - 1  # 0-based
 
-    def number(col: str, pattern: str, kind: str = "NUMBER", r0: int = first) -> dict:
+    def number(col: str, pattern: str, kind: str = "NUMBER", r0: int = first, r1: int | None = None) -> dict:
         c = col_index(col)
         return {
             "repeatCell": {
-                "range": grid(sheet_id, r0, None, c, c + 1),
+                "range": grid(sheet_id, r0, r1, c, c + 1),
                 "cell": {"userEnteredFormat": {"numberFormat": {"type": kind, "pattern": pattern}}},
                 "fields": "userEnteredFormat.numberFormat",
             }
         }
 
     def dropdown(col: str, values: list[str]) -> dict:
-        c = col_index(col)
-        return {
-            "setDataValidation": {
-                "range": grid(sheet_id, first, TAB_ROWS, c, c + 1),
-                "rule": {
-                    "condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in values]},
-                    "showCustomUi": True,
-                    "strict": False,
-                },
-            }
-        }
+        return dropdown_request(sheet_id, first, col, values)
 
     def column(col: str, **props) -> dict:
         c = col_index(col)
@@ -343,10 +345,19 @@ def format_requests(sheet_id: int, tab: Tab, config: Config) -> list[dict]:
             }
         }
 
+    def fill(r0: int, r1: int, c0: str, c1: str, colour: str) -> dict:
+        return {
+            "repeatCell": {
+                "range": grid(sheet_id, r0, r1, col_index(c0), col_index(c1) + 1),
+                "cell": {"userEnteredFormat": {"backgroundColor": COLOURS[colour]}},
+                "fields": "userEnteredFormat.backgroundColor",
+            }
+        }
+
     def bold(r0: int, r1: int) -> dict:
         return {
             "repeatCell": {
-                "range": grid(sheet_id, r0, r1, 0, 20),
+                "range": grid(sheet_id, r0, r1, 0, TAB_COLS),
                 "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
                 "fields": "userEnteredFormat.textFormat.bold",
             }
@@ -360,39 +371,63 @@ def format_requests(sheet_id: int, tab: Tab, config: Config) -> list[dict]:
             }
         }
 
+    gaps = [column(c, pixelSize=24, hiddenByUser=False) for c in GAP_COLS[tab.kind]]
     if tab.kind == "month":
+        s0, s1, e0, e1 = SPEND_COLS[0], SPEND_COLS[-1], EARN_COLS[0], EARN_COLS[-1]
         return [
-            number("A", "dd/mm/yyyy", "DATE"), number("N", "dd/mm/yyyy", "DATE"),
-            *(number(c, "#,##0.00") for c in "DPILT"),
-            dropdown("C", config.categories), dropdown("E", config.importance),
-            column("B", pixelSize=240), column("O", pixelSize=220),
-            column("G", hiddenByUser=True), column("R", hiddenByUser=True),
+            number("A", "dd/mm/yyyy", "DATE"), number(e0, "dd/mm/yyyy", "DATE"),
+            *(number(c, "#,##0.00") for c in ("D", EARN_COLS[2], CAT_COLS[1], IMP_COLS[1], SUMMARY_COLS[1])),
+            dropdown("C", config.categories), dropdown("E", config.importance), clear_validation(sheet_id, "F"),
+            column("B", pixelSize=240), column(EARN_COLS[1], pixelSize=220),
+            column("F", pixelSize=110, hiddenByUser=False), column(EARN_COLS[3], pixelSize=110, hiddenByUser=False),
+            column("G", pixelSize=260, hiddenByUser=False), column(EARN_COLS[4], pixelSize=260),
+            column(SPEND_KEY, hiddenByUser=True), column(EARN_KEY, hiddenByUser=True), *gaps,
+            fill(0, 2, s0, s1, "spend"), fill(0, 2, e0, e1, "earn"),
+            fill(1, 2, CAT_COLS[0], CAT_COLS[1], "summary"), fill(1, 2, IMP_COLS[0], IMP_COLS[1], "summary"),
+            fill(1, 2, SUMMARY_COLS[0], SUMMARY_COLS[1], "summary"), fill(5, 6, SUMMARY_COLS[0], SUMMARY_COLS[1], "final"),
             bold(0, 2), freeze(2),
         ]
 
+    L, V = TRIP_SUMMARY_COLS
     reqs = [
-        number("A", "dd/mm/yyyy", "DATE"), number("D", "#,##0.00"),
-        number("P", "#,##0.00", r0=3),
-        dropdown("C", config.categories), dropdown("E", config.importance),
-        column("B", pixelSize=220), column("O", pixelSize=170),
-        column("G", hiddenByUser=True),
+        number("A", "dd/mm/yyyy", "DATE"), number("D", "#,##0.00"), number(V, "#,##0.00", r0=3),
+        dropdown("C", config.categories), dropdown("E", config.importance), clear_validation(sheet_id, "F", first),
+        column("B", pixelSize=220), column("F", pixelSize=110, hiddenByUser=False),
+        column("G", pixelSize=220, hiddenByUser=False), column(SPEND_KEY, hiddenByUser=True), *gaps,
+        fill(2, 3, SPEND_COLS[0], SPEND_COLS[-1], "spend"), fill(2, 3, L, V, "summary"), fill(7, 8, L, V, "final"),
         bold(0, 3), freeze(3),
     ]
     if tab.trip and tab.trip.currency:
+        c, rc = CASH_COLS, RECEIVED_COLS
         reqs += [
-            number("H", "dd/mm/yyyy", "DATE"), number("Q", "dd/mm/yyyy", "DATE"),
-            number("K", "#,##0"), number("S", "#,##0"),
-            {
-                "repeatCell": {
-                    "range": grid(sheet_id, 5, 6, col_index("P"), col_index("P") + 1),
-                    "cell": {"userEnteredFormat": {"numberFormat": {"type": "NUMBER", "pattern": "0.00000"}}},
-                    "fields": "userEnteredFormat.numberFormat",
-                }
-            },
-            dropdown("J", config.categories), dropdown("L", config.importance),
-            column("I", pixelSize=200), column("R", pixelSize=200),
+            number(c[0], "dd/mm/yyyy", "DATE"), number(rc[0], "dd/mm/yyyy", "DATE"),
+            number(c[3], "#,##0.00"), number(rc[2], "#,##0.00"),
+            number(V, "0.00000", r0=5, r1=6),
+            dropdown(c[2], config.categories), dropdown(c[4], config.importance),
+            column(c[1], pixelSize=200), column(rc[1], pixelSize=200),
+            fill(1, 3, c[0], c[-1], "cash"), fill(1, 3, rc[0], rc[-1], "earn"),
         ]
     return reqs
+
+
+def dropdown_request(sheet_id: int, first: int, col: str, values: list[str]) -> dict:
+    c = col_index(col)
+    return {
+        "setDataValidation": {
+            "range": grid(sheet_id, first, TAB_ROWS, c, c + 1),
+            "rule": {
+                "condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in values]},
+                "showCustomUi": True,
+                "strict": False,
+            },
+        }
+    }
+
+
+def clear_validation(sheet_id: int, col: str, first: int = FIRST_ROW - 1) -> dict:
+    """A column inserted next to a dropdown can inherit it: Source has none."""
+    c = col_index(col)
+    return {"setDataValidation": {"range": grid(sheet_id, first, TAB_ROWS, c, c + 1)}}
 
 
 def to_update_formats(sheet_id: int) -> list[dict]:
@@ -462,7 +497,8 @@ def as_amount(v) -> float:
 def summary_ranges(month_title: str) -> list[str]:
     """The month's own summary cells: what its formulas computed."""
     q = quote(month_title)
-    return [f"{q}!H3:I40", f"{q}!K3:L20", f"{q}!S3:T6"]
+    c, i, s = CAT_COLS, IMP_COLS, SUMMARY_COLS
+    return [f"{q}!{c[0]}3:{c[1]}40", f"{q}!{i[0]}3:{i[1]}20", f"{q}!{s[0]}3:{s[1]}6"]
 
 
 def parse_summary(by_category: list[list], by_importance: list[list], totals: list[list]) -> dict:
@@ -489,20 +525,20 @@ def rows_from_values(spend: list[list], earn: list[list], first_row: int = 3) ->
     a key were typed by hand: shown, but read-only in the app."""
     out = []
     for i, r in enumerate(spend):
-        if not any(str(c).strip() for c in r[:6]):
+        if not any(str(c).strip() for c in r[:7]):
             continue
         out.append({
             "kind": "spend", "row": first_row + i, "date": (d := as_date(r[0] if r else "")) and d.isoformat(),
             "item": _get(r, 1), "category": _get(r, 2), "amount": as_amount(_get(r, 3)),
-            "importance": _get(r, 4), "remarks": _get(r, 5), "key": _get(r, 6),
+            "importance": _get(r, 4), "source": _get(r, 5), "remarks": _get(r, 6), "key": _get(r, 7),
         })
     for i, r in enumerate(earn):
-        if not any(str(c).strip() for c in r[:4]):
+        if not any(str(c).strip() for c in r[:5]):
             continue
         out.append({
             "kind": "earn", "row": first_row + i, "date": (d := as_date(r[0] if r else "")) and d.isoformat(),
             "item": _get(r, 1), "category": "", "amount": as_amount(_get(r, 2)),
-            "importance": "", "remarks": _get(r, 3), "key": _get(r, 4),
+            "importance": "", "source": _get(r, 3), "remarks": _get(r, 4), "key": _get(r, 5),
         })
     return out
 
@@ -531,7 +567,7 @@ def edit_plan(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int]
               remove: bool = False) -> tuple[list[dict], list[dict]]:
     """Write `fields` (item/category/importance/remarks) into the row with
     `key`, or remove that row ("not mine"). `values` are the tab's data
-    ranges as read (A3:G and N3:R, or A4:G for a trip). Returns
+    ranges as read (A3:H and P3:U, or A4:H for a trip). Returns
     (values:batchUpdate data, batchUpdate requests)."""
     found = locate(values).get(key)
     if not found:
@@ -554,35 +590,156 @@ def remove_card_request(to_update_sheet_id: int, row: int) -> dict:
 
 def category_refresh(sheet_ids: dict[str, int], year: int, config: Config) -> dict:
     """After the category list changes: rewrite every month tab's "By
-    Category" block (H-I) and the Category dropdowns (month C, trip C and J)
-    so a new category is offered and summed everywhere. Nothing else is
-    touched. Returns {"clear", "data", "requests"}."""
+    Category" block and the Category dropdowns (month C, trip C and the trip
+    currency block's Category) so a new category is offered and summed
+    everywhere. Nothing else is touched. Returns {"clear", "data", "requests"}."""
     months, trips = month_and_trip_tabs(list(sheet_ids), year, config)
     layout = month_layout(config, True)
-    block = {c: v for c, v in layout.items() if c[0] in "HI"}
+    block = {c: v for c, v in layout.items() if c[0] in CAT_COLS}
     clear, data, requests = [], [], []
-
-    def dropdown(sheet_id: int, first: int, col: str) -> dict:
-        c = col_index(col)
-        return {
-            "setDataValidation": {
-                "range": grid(sheet_id, first, TAB_ROWS, c, c + 1),
-                "rule": {
-                    "condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": v} for v in config.categories]},
-                    "showCustomUi": True,
-                    "strict": False,
-                },
-            }
-        }
-
     for t in months:
         q = quote(t)
-        clear.append(f"{q}!H3:I40")
+        clear.append(f"{q}!{CAT_COLS[0]}3:{CAT_COLS[1]}40")
         data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in block.items()]
-        requests.append(dropdown(sheet_ids[t], FIRST_ROW - 1, "C"))
+        requests.append(dropdown_request(sheet_ids[t], FIRST_ROW - 1, "C", config.categories))
     for t in trips:
-        requests.append(dropdown(sheet_ids[t], TRIP_FIRST_ROW - 1, "C"))
+        requests.append(dropdown_request(sheet_ids[t], TRIP_FIRST_ROW - 1, "C", config.categories))
         trip = next(x for x in config.trips if x.name == t)
         if trip.currency:
-            requests.append(dropdown(sheet_ids[t], TRIP_FIRST_ROW - 1, "J"))
+            requests.append(dropdown_request(sheet_ids[t], TRIP_FIRST_ROW - 1, CASH_COLS[2], config.categories))
     return {"clear": clear, "data": data, "requests": requests}
+
+
+# ---- tabs made before the Source column and the gap columns (Oct 2026) ----------
+#
+# Columns are inserted, not rewritten, so every row, your edits, and formulas
+# pointing at these tabs (Final, Trips, Year End Summary) move along with
+# them. Then Source is filled in and the old automatic Remarks ("To Jane
+# Tan", or the bank) become the statement text.
+
+# 0-based columns of the old layout to insert one column before, right to left
+# so earlier inserts don't shift later ones.
+OLD_MONTH_INSERTS = [18, 16, 7, 5]  # before S (gap), Q (Source), H (gap), F (Source)
+OLD_TRIP_INSERTS = [16, 7, 5]  # before Q (gap), H (gap), F (Source)
+
+
+def header_ranges(year: int, titles: list[str], config: Config) -> list[str]:
+    """Each managed tab's header row, to tell old layouts from new."""
+    months, trips = month_and_trip_tabs(list(titles), year, config)
+    return [f"{quote(t)}!A2:H2" for t in months] + [f"{quote(t)}!A3:H3" for t in trips]
+
+
+def old_tabs(headers: dict[str, list[list]]) -> list[str]:
+    """Titles whose header still has Remarks in F and the key in G."""
+    out = []
+    for rng, rows in headers.items():
+        row = rows[0] if rows else []
+        if len(row) >= 7 and str(row[5]) == "Remarks" and str(row[6]) == "Key":
+            out.append(rng.rsplit("!", 1)[0][1:-1].replace("''", "'"))
+    return out
+
+
+def unfinished_tabs(headers: dict[str, list[list]]) -> list[str]:
+    """Columns inserted but headers not rewritten yet (an upgrade cut short)."""
+    out = []
+    for rng, rows in headers.items():
+        row = (rows[0] if rows else []) + [""] * 8
+        if not str(row[5]).strip() and str(row[6]) == "Remarks" and str(row[7]) == "Key":
+            out.append(rng.rsplit("!", 1)[0][1:-1].replace("''", "'"))
+    return out
+
+
+def insert_columns(sheet_ids: dict[str, int], titles: list[str]) -> list[dict]:
+    reqs = []
+    for t in titles:
+        for c in OLD_MONTH_INSERTS if parse_month_title(t) else OLD_TRIP_INSERTS:
+            reqs.append({
+                "insertDimension": {
+                    "range": {"sheetId": sheet_ids[t], "dimension": "COLUMNS", "startIndex": c, "endIndex": c + 1},
+                    "inheritFromBefore": False,
+                }
+            })
+    return reqs
+
+
+def upgrade_finish(sheet_ids: dict[str, int], titles: list[str], values: dict[str, list[list]], rows: list[AccountRow],
+                   config: Config) -> tuple[list[str], list[dict], list[dict]]:
+    """After insert_columns: the new headers, summaries and formats, plus
+    Source and Remarks for rows fincomp recorded. `values` are the data
+    ranges (data_ranges) read with FORMULA. Returns (ranges to clear first,
+    data, requests)."""
+    by_key = {r.key: r for r in rows}
+    trips = {t.name: t for t in config.trips}
+    clear: list[str] = []
+    data: list[dict] = []
+    requests: list[dict] = []
+    for t in titles:
+        q = quote(t)
+        if parse_month_title(t):
+            tab = Tab(t, "month", ())
+            layout = month_layout(config, True)
+            clear.append(f"{q}!{CAT_COLS[0]}3:{IMP_COLS[1]}40")  # old summaries, rewritten below
+        elif t in trips:
+            tab = Tab(t, "trip", (), trip=trips[t])
+            layout = trip_layout(trips[t], config, True)
+        else:
+            continue
+        data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in layout.items()]
+        requests += format_requests(sheet_ids[t], tab, config)
+
+    for key, (tab_q, kind, row, vals) in locate(values).items():
+        if tab_q[1:-1].replace("''", "'") not in titles or key not in by_key:
+            continue
+        r = by_key[key]
+        source_i, remarks_i = (5, 6) if kind == "spend" else (3, 4)
+        fields = {}
+        if not _get(vals, source_i):
+            fields["source"] = r.source
+        if _get(vals, remarks_i) in (r.who, r.source):  # what fincomp wrote before, never your own note
+            fields["remarks"] = r.remarks
+        data += set_cells(tab_q, kind, row, fields)
+    return clear, data, requests
+
+
+# ---- rows placed by hand: added in the app, or moved to/from a trip -------------
+
+
+def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int]) -> tuple[dict | None, list[dict]]:
+    """The row with `key` as fields, and the request that removes it from
+    its block (to put it somewhere else)."""
+    found = locate(values).get(key)
+    if not found:
+        return None, []
+    tab_q, kind, row, v = found
+    if kind == "spend":
+        fields = {"kind": "spend", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "category": _get(v, 2),
+                  "amount": as_amount(_get(v, 3)), "importance": _get(v, 4), "source": _get(v, 5),
+                  "remarks": _get(v, 6), "key": key}
+    else:
+        fields = {"kind": "earn", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "amount": as_amount(_get(v, 2)),
+                  "source": _get(v, 3), "remarks": _get(v, 4), "key": key}
+    ids = {quote(t): i for t, i in sheet_ids.items()}
+    return fields, [remove_row_request(ids[tab_q], kind, row)]
+
+
+def cash_row(values: list[list], tab_title: str, fields: dict) -> list[dict]:
+    """A trip's spending in its own currency (J-O): written under the last one."""
+    row = TRIP_FIRST_ROW + len(values)
+    vals = [fields.get("date", ""), fields.get("item", ""), fields.get("category", ""), fields.get("amount", ""),
+            fields.get("importance", ""), fields.get("remarks", "")]
+    return [{"range": f"{quote(tab_title)}!{CASH_COLS[0]}{row}:{CASH_COLS[-1]}{row}",
+             "values": [[cell(v) for v in vals]]}]
+
+
+def trip_refresh(sheet_ids: dict[str, int], config: Config) -> tuple[list[dict], list[dict]]:
+    """After trips change in Settings: each existing trip tab's headings,
+    summary (currency, rate) and formats. Rows are never touched."""
+    data: list[dict] = []
+    requests: list[dict] = []
+    for trip in config.trips:
+        if trip.name not in sheet_ids:
+            continue
+        q = quote(trip.name)
+        data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in trip_layout(trip, config, True).items()]
+        requests += format_requests(sheet_ids[trip.name], Tab(trip.name, "trip", (), trip=trip), config)
+    return data, requests

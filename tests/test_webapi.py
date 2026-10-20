@@ -78,9 +78,9 @@ def test_upload_compiles_and_plans_the_year():
     assert out["toUpdate"] == 2  # Amy (what for) and lunch (Category)
     assert sheet.titles == ["To Update", "September 2026", "Year End Summary"]
     data = {d["range"]: d["values"] for d in done["data"]}
-    spend = data["'September 2026'!A3:G4"]
-    assert [r[1] for r in spend] == ["Lunch", "SHOPEE MY"] and spend[0][5] == "To Bob"
-    assert data["'September 2026'!N3:R3"][0][1] == "QR payment"
+    spend = data["'September 2026'!A3:H4"]
+    assert [r[1] for r in spend] == ["Lunch", "SHOPEE MY"] and spend[0][5] == "Bank A"  # Source
+    assert data["'September 2026'!P3:U3"][0][1] == "QR payment"
     assert done["added"] == 3 and done["toUpdate"] == 2
     # The Ledger keeps every parsed row, internal ones too, for later uploads.
     ledger = S.ledger_from_rows(out["ledger"])
@@ -99,8 +99,8 @@ def test_cards_edit_and_not_mine():
     assert cards[1]["date"] == "2026-09-16"  # Sheets date serial -> ISO
 
     month = {
-        "'September 2026'!A3:G": [["2026-09-05", "Lunch", "", 16.4, "", "To Bob", "k1"]],
-        "'September 2026'!N3:R": [["2026-09-16", "QR payment", 107.0, "From Amy Wong", "k2"]],
+        "'September 2026'!A3:H": [["2026-09-05", "Lunch", "", 16.4, "", "Bank A", "", "k1"]],
+        "'September 2026'!P3:U": [["2026-09-16", "QR payment", 107.0, "Bank A", "", "k2"]],
     }
     ids = {"September 2026": 7, "To Update": 9}
     edit = webapi.edit_row("k1", month, ids, {"category": "Food", "importance": "Essential"})
@@ -111,7 +111,7 @@ def test_cards_edit_and_not_mine():
     gone = webapi.remove_row("k2", month, ids, cards[1])
     (req,) = gone["requests"]
     assert req["deleteRange"]["range"] == {
-        "sheetId": 7, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 13, "endColumnIndex": 18,
+        "sheetId": 7, "startRowIndex": 2, "endRowIndex": 3, "startColumnIndex": 15, "endColumnIndex": 21,
     }
     assert gone["removed"][0] == "k2"
     assert webapi.remove_card(9, 3)["deleteDimension"]["range"]["startIndex"] == 2
@@ -134,8 +134,8 @@ def test_summary_and_rows_from_the_sheet():
         [["Earnings", 107], ["Spendings", 16.4], ["Trips", 0], ["Final", 90.6]],
     )
     assert (s["byCategory"]["Food"], s["final"], s["earnings"]) == (16.4, 90.6, 107)
-    rows = webapi.month_rows([[46270, "Lunch", "Food", 16.4, "Essential", "To Bob", "k1"], ["", "", "", "", "", "", ""],
-                              [46271, "Cash: nasi lemak", "Food", 6, "", "", ""]], [])
+    rows = webapi.month_rows([[46270, "Lunch", "Food", 16.4, "Essential", "TNG", "dinner w Bob", "k1"],
+                              ["", "", "", "", "", "", "", ""], [46271, "Cash: nasi lemak", "Food", 6, "", "", "", ""]], [])
     assert [(r["date"], r["item"], r["row"], r["key"]) for r in rows] == [
         ("2026-09-05", "Lunch", 3, "k1"), ("2026-09-06", "Cash: nasi lemak", 5, ""),  # typed by hand: no key
     ]

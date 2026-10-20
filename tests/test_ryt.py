@@ -89,7 +89,7 @@ def test_rows_and_classification():
 def test_into_accounts(tmp_path):
     cfg = Config(answers=tmp_path / "a.json")
     txs = parse_text(STATEMENT)
-    assert [(r.kind, r.item, r.amount, r.remarks) for r in build_rows(txs, cfg)] == [
+    assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("spend", "SOME SOFTWARE SUB", 1000.00, "Ryt Bank"),
         ("earn", "Interest earned", 0.05, "Ryt Bank"),
         ("spend", "Dinner share", 30.00, "To Bob Lim Ah Kow"),  # 4-part names stay whole

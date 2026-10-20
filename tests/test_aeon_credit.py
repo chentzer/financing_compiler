@@ -52,7 +52,7 @@ def test_cr_rows_are_ignored():
 def test_charges_are_all_recorded(tmp_path):
     txs = parse_text(STATEMENT)
     cfg = Config(answers=tmp_path / "a.json", rules=[{"match": "SHOPEE", "category": "Shopping"}])
-    assert [(r.item, r.category, r.remarks) for r in build_rows(txs, cfg)] == [
+    assert [(r.item, r.category, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("KEDAI KOPI SATU", "", "AEON Credit"),
         ("AIRASIA-AKRB-FLT-MYR", "", "AEON Credit"),
         ("Shopee MY Marketplace", "Shopping", "AEON Credit"),

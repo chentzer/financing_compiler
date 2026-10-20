@@ -79,7 +79,7 @@ def cfg(tmp_path, **kw):
 def test_rules_on_aeon_statement(tmp_path):
     c = cfg(tmp_path)
     rows = build_rows(parse_text(STATEMENT), c)
-    got = [(r.kind, r.item, r.amount, r.remarks) for r in rows]
+    got = [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in rows]
     # Rule 1: pot moves and transfers to/from "JANE TAN" are gone.
     # Rule 2: your spending, and money in from others.
     # Rule 3: AMY WONG's "DuitNow QR" says nothing: still recorded, with

@@ -70,7 +70,7 @@ def test_rows_and_classification():
 def test_into_accounts(tmp_path):
     cfg = Config(answers=tmp_path / "a.json")
     txs = parse_text(STATEMENT, own_payees=cfg.own_payees)
-    assert [(r.kind, r.item, r.amount, r.remarks) for r in build_rows(txs, cfg)] == [
+    assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("earn", "Transfer", 200.00, "From Ah Kow"),  # reference only: edit in the sheet
         ("spend", "PTPTN APPS DD ELMASI", 150.00, "Maybank"),
         ("earn", "Transfer", 10.00, "From Aia Health Services"),

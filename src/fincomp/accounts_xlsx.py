@@ -7,19 +7,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from .accounts import (
-    TO_UPDATE, XLSX_LAST_ROW, YEAR_SUMMARY, Tab, month_layout, month_links, to_update_table, trip_layout,
-    year_summary_cells,
+    CASH_COLS, CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, IMP_COLS, RECEIVED_COLS, SPEND_COLS, SPEND_KEY, SUMMARY_COLS,
+    TO_UPDATE, TRIP_RATE_CELL, TRIP_SUMMARY_COLS, XLSX_LAST_ROW, YEAR_SUMMARY, Tab, month_layout, month_links,
+    to_update_table, trip_layout, year_summary_cells,
 )
 from .config import Config
 
-MONTH_WIDTHS = {"A": 12, "B": 34, "C": 16, "D": 12, "E": 14, "F": 22, "H": 18, "I": 14, "K": 16,
-                "L": 14, "N": 12, "O": 30, "P": 12, "Q": 22, "S": 12, "T": 14}
-TRIP_WIDTHS = {"A": 12, "B": 30, "C": 14, "D": 12, "E": 14, "F": 20, "H": 12, "I": 28, "J": 14,
-               "K": 14, "L": 14, "M": 18, "O": 24, "P": 12, "Q": 12, "R": 26, "S": 14, "T": 18}
+MONTH_WIDTHS = {"A": 12, "B": 34, "C": 16, "D": 12, "E": 14, "F": 14, "G": 30, "I": 3, "J": 18, "K": 14, "L": 3,
+                "M": 16, "N": 14, "O": 3, "P": 12, "Q": 30, "R": 12, "S": 14, "T": 30, "V": 3, "W": 12, "X": 14}
+TRIP_WIDTHS = {"A": 12, "B": 30, "C": 14, "D": 12, "E": 14, "F": 14, "G": 24, "I": 3, "J": 12, "K": 28, "L": 14,
+               "M": 14, "N": 14, "O": 18, "P": 3, "Q": 24, "R": 12, "S": 3, "T": 12, "U": 26, "V": 14, "W": 18}
+
+
+def _fill(ws, cells: str, colour: str) -> None:
+    c = COLOURS[colour]
+    rgb = "".join(f"{round(c[k] * 255):02X}" for k in ("red", "green", "blue"))
+    for row in ws[cells]:
+        for cell in row:
+            cell.fill = PatternFill("solid", fgColor=rgb)
 
 
 def write_accounts_xlsx(out_dir: Path, tabs_by_year: dict[int, list[Tab]], config: Config) -> list[Path]:
@@ -82,18 +91,23 @@ def _dropdowns(ws, config: Config, first_row: int, pairs: list[tuple[str, list[s
 def _fill_month(ws, tab: Tab, config: Config, links: dict) -> None:
     for cell, value in {**month_layout(config, open_ended=False), **links}.items():
         ws[cell] = value
-    for cell in ("A1", "N1"):
+    for cell in ("A1", f"{EARN_COLS[0]}1"):
         ws[cell].font = Font(bold=True, size=12)
-    _rows(ws, tab, "spend", "ABCDEFG", "A", "D")
-    _rows(ws, tab, "earn", "NOPQR", "N", "P")
-    for col in ("I", "L", "T"):
+    _rows(ws, tab, "spend", SPEND_COLS + SPEND_KEY, "A", "D")
+    _rows(ws, tab, "earn", EARN_COLS + EARN_KEY, EARN_COLS[0], EARN_COLS[2])
+    for col in (CAT_COLS[1], IMP_COLS[1], SUMMARY_COLS[1]):
         for row in range(tab.first_row, tab.first_row + len(config.categories) + 2):
             ws[f"{col}{row}"].number_format = "#,##0.00"
     _dropdowns(ws, config, tab.first_row, [("C", config.categories), ("E", config.importance)])
     for col, w in MONTH_WIDTHS.items():
         ws.column_dimensions[col].width = w
-    ws.column_dimensions["G"].hidden = True
-    ws.column_dimensions["R"].hidden = True
+    ws.column_dimensions[SPEND_KEY].hidden = True
+    ws.column_dimensions[EARN_KEY].hidden = True
+    _fill(ws, f"A1:{SPEND_COLS[-1]}2", "spend")
+    _fill(ws, f"{EARN_COLS[0]}1:{EARN_COLS[-1]}2", "earn")
+    for cols in (CAT_COLS, IMP_COLS, SUMMARY_COLS):
+        _fill(ws, f"{cols[0]}2:{cols[1]}2", "summary")
+    _fill(ws, f"{SUMMARY_COLS[0]}6:{SUMMARY_COLS[1]}6", "final")
     ws.freeze_panes = "A3"
 
 
@@ -101,16 +115,22 @@ def _fill_trip(ws, tab: Tab, config: Config) -> None:
     for cell, value in trip_layout(tab.trip, config, open_ended=False).items():
         ws[cell] = value
     ws["A1"].font = Font(bold=True, size=14)
-    _rows(ws, tab, "spend", "ABCDEFG", "A", "D")
+    _rows(ws, tab, "spend", SPEND_COLS + SPEND_KEY, "A", "D")
+    L, V = TRIP_SUMMARY_COLS
     for row in range(4, 14):
-        ws[f"P{row}"].number_format = "#,##0.00"
+        ws[f"{V}{row}"].number_format = "#,##0.00"
     if tab.trip.currency:
-        ws["P6"].number_format = "0.00000"
+        ws[TRIP_RATE_CELL].number_format = "0.00000"
     pairs = [("C", config.categories), ("E", config.importance)]
     if tab.trip.currency:
-        pairs += [("J", config.categories), ("L", config.importance)]
+        pairs += [(CASH_COLS[2], config.categories), (CASH_COLS[4], config.importance)]
+        _fill(ws, f"{CASH_COLS[0]}2:{CASH_COLS[-1]}3", "cash")
+        _fill(ws, f"{RECEIVED_COLS[0]}2:{RECEIVED_COLS[-1]}3", "earn")
+    _fill(ws, f"A3:{SPEND_COLS[-1]}3", "spend")
+    _fill(ws, f"{L}3:{V}3", "summary")
+    _fill(ws, f"{L}8:{V}8", "final")
     _dropdowns(ws, config, tab.first_row, pairs)
     for col, w in TRIP_WIDTHS.items():
         ws.column_dimensions[col].width = w
-    ws.column_dimensions["G"].hidden = True
+    ws.column_dimensions[SPEND_KEY].hidden = True
     ws.freeze_panes = "A4"

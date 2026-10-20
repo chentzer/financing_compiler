@@ -107,7 +107,7 @@ def test_local_workbook_has_to_update_tab(tmp_path):
     assert [(r[2], r[4], r[5], r[6]) for r in rows] == [
         ("To Mei Ling", "Lunch", "Category", "September 2026"),
         ("From Siew Wen", "QR payment", "what it was for", "September 2026"),
-        ("AEON Credit", "MO-MO PARADISE", "Category", "September 2026"),
+        ("MO-MO PARADISE", "MO-MO PARADISE", "Category", "September 2026"),
         ("To Ahmad Faiz", "QR payment", "what it was for, Category", "September 2026"),
     ]
 
@@ -130,11 +130,12 @@ def test_answers_reach_rows_already_in_the_sheet(fake, tmp_path):
     spend = [r for r in rows if r.kind == "spend"]
     earn = [r for r in rows if r.kind == "earn"]
     # The sheet as uploaded (rows 3..), and you then fixed Mo-Mo's Category yourself.
-    sheet.values["'September 2026'!A3:G"] = [
-        [46000, r.item, "Food" if r.item == "MO-MO PARADISE" else r.category, r.amount, "", r.remarks, r.key]
+    sheet.values["'September 2026'!A3:H"] = [
+        [46000, r.item, "Food" if r.item == "MO-MO PARADISE" else r.category, r.amount, "", r.source, r.remarks,
+         r.key]
         for r in spend
     ]
-    sheet.values["'September 2026'!N3:R"] = [[46000, r.item, r.amount, r.remarks, r.key] for r in earn]
+    sheet.values["'September 2026'!P3:U"] = [[46000, r.item, r.amount, r.source, r.remarks, r.key] for r in earn]
 
     answers = {}
     update_cards(needs_update(rows), c, answers, say=lambda _: None, ask=script(
@@ -149,12 +150,12 @@ def test_answers_reach_rows_already_in_the_sheet(fake, tmp_path):
     lunch_row = 3 + [r.item for r in spend].index("Lunch")
     assert w[f"'September 2026'!C{lunch_row}"] == [["Food"]]
     assert w[f"'September 2026'!E{lunch_row}"] == [["Essential"]]
-    assert w["'September 2026'!O3"] == [["Mo-Mo payback"]]
+    assert w["'September 2026'!Q3"] == [["Mo-Mo payback"]]
     assert f"'September 2026'!B{lunch_row}" not in w  # only the cells you answered
     # Ahmad Faiz's row is removed from the Spendings block only.
     (removal,) = [r["deleteRange"] for r in sheet.requests if "deleteRange" in r]
     abdul_row = 3 + [r.statement for r in spend].index("AHMAD FAIZ - DuitNowQR - QR Payment")
-    assert removal["range"]["startRowIndex"] == abdul_row - 1 and removal["range"]["endColumnIndex"] == 7
+    assert removal["range"]["startRowIndex"] == abdul_row - 1 and removal["range"]["endColumnIndex"] == 8
     assert removal["shiftDimension"] == "ROWS"
 
     # Mo-Mo was fixed in the sheet, so no card is left.

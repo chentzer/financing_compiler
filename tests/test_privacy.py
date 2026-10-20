@@ -27,7 +27,9 @@ def published_files() -> list[Path]:
 @pytest.mark.skipif(not DENYLIST.exists(), reason="no local privacy_denylist.txt")
 def test_no_real_statement_data_in_published_files():
     terms = [t.strip() for t in DENYLIST.read_text(encoding="utf-8").splitlines() if t.strip() and not t.startswith("#")]
-    pattern = re.compile("|".join(re.escape(t) for t in terms), re.IGNORECASE)
+    # Words of a term may be split by a line break or Markdown ("To Zai\n   Yi*").
+    gap = r"[\s*_]+"
+    pattern = re.compile("|".join(gap.join(re.escape(w) for w in t.split()) for t in terms), re.IGNORECASE)
     hits = []
     for f in published_files():
         try:

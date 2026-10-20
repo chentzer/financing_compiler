@@ -40,7 +40,7 @@ def card(row: AccountRow, n: int, total: int) -> str:
     lines = [
         f"{n} of {total}".ljust(WIDTH - len(f"needs: {needs}")) + f"needs: {needs}",
         f"{row.date:%d %b %Y}   {sign}RM {row.amount:,.2f}   {row.source}",
-        row.remarks,
+        row.who,
         f"Statement: {row.statement}",
         f"Recorded as: {row.item}" + (f"  ({row.category})" if row.category else ""),
     ]

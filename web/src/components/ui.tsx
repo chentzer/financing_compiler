@@ -32,11 +32,14 @@ export function Chips<T extends string>({
   value,
   onChange,
   label,
+  names,
 }: {
   options: readonly T[]
   value: NoInfer<T> | ''
   onChange(v: NoInfer<T> | ''): void
   label: string
+  /** Shown instead of the value, e.g. { spend: 'Spending' }. */
+  names?: Partial<Record<T, string>>
 }) {
   return (
     <div className="chips" role="radiogroup" aria-label={label}>
@@ -49,7 +52,7 @@ export function Chips<T extends string>({
           className={value === o ? 'chip on' : 'chip'}
           onClick={() => onChange(value === o ? '' : o)}
         >
-          {o}
+          {names?.[o] ?? o}
         </button>
       ))}
     </div>

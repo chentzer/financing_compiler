@@ -39,11 +39,11 @@ def test_new_category_saved_in_lists_and_refreshed_in_tabs():
     config = Config(categories=["Food", "Misc", "Pets"], trips=[Trip(
         name="Japan Trip", start=date(2026, 9, 1), end=date(2026, 9, 9), currency="Yen", rate=0.03)])
     plan = sheetplan.category_refresh({"September 2026": 5, "Japan Trip": 7, "Chinese New Year": 9}, 2026, config)
-    assert plan["clear"] == ["'September 2026'!H3:I40"]
+    assert plan["clear"] == ["'September 2026'!J3:K40"]
     cells = {d["range"]: d["values"][0][0] for d in plan["data"]}
-    assert cells["'September 2026'!H5"] == "Pets"
-    assert cells["'September 2026'!I5"].startswith('=SUMIF(') and '"Pets"' in cells["'September 2026'!I5"]
-    assert cells["'September 2026'!H6"] == "Not set"
-    assert all(d["range"].split("!")[1][0] in "HI" for d in plan["data"])  # nothing else touched
+    assert cells["'September 2026'!J5"] == "Pets"
+    assert cells["'September 2026'!K5"].startswith('=SUMIF(') and '"Pets"' in cells["'September 2026'!K5"]
+    assert cells["'September 2026'!J6"] == "Not set"
+    assert all(d["range"].split("!")[1][0] in "JK" for d in plan["data"])  # nothing else touched
     sheets = [r["setDataValidation"]["range"]["sheetId"] for r in plan["requests"]]
     assert sorted(sheets) == [5, 7, 7]  # month C; trip C and J; never the user's own tab

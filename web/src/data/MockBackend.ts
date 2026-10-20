@@ -7,6 +7,7 @@ import {
   type CardAnswer,
   type Month,
   type MonthSummary,
+  type NewRow,
   type Passwords,
   type Row,
   type RowEdit,
@@ -149,6 +150,22 @@ export class MockBackend implements Backend {
       Object.assign(card, fields)
       if (closes(card)) this.s.cards.delete(key)
     }
+  }
+
+  async addRow(row: NewRow): Promise<void> {
+    await wait()
+    this.s.rows.push({
+      key: `m-${Date.now()}`, kind: row.kind, date: row.date, item: row.item.trim(), amount: row.amount,
+      category: row.kind === 'spend' ? (row.category ?? '') : '', importance: row.kind === 'spend' ? (row.importance ?? '') : '',
+      remarks: row.remarks ?? '', source: row.source ?? '', trip: row.kind === 'spend' ? row.trip || undefined : undefined,
+    })
+  }
+
+  async moveRow(key: string, trip: string | null): Promise<void> {
+    await wait()
+    const row = this.s.rows.find((r) => r.key === key)
+    if (!row) throw new Error('That row is no longer in the sheet.')
+    row.trip = trip ?? undefined
   }
 
   async listCards(): Promise<Card[]> {

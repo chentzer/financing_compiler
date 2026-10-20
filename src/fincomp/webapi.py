@@ -16,9 +16,11 @@ The compiled result is kept here between those calls (one user, one page).
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 
 from . import settings as S
 from . import sheetplan
+from .accounts import AccountRow, Tab, deduction_month, month_title, parse_month_title
 from .pipeline import Compiled, compile_statements
 from .suggest import suggest_categories
 
@@ -91,7 +93,7 @@ def cards(to_update_rows: list[list]) -> list[dict]:
 
 def tab_ranges(tab_title: str, trip: bool = False) -> list[str]:
     q = sheetplan.quote(tab_title)
-    return [f"{q}!A4:G"] if trip else [f"{q}!A3:G", f"{q}!N3:R"]
+    return [f"{q}!A4:H"] if trip else [f"{q}!A3:H", f"{q}!P3:U"]
 
 
 def month_rows(spend: list[list], earn: list[list]) -> list[dict]:
@@ -165,3 +167,123 @@ def settings_template() -> dict:
     tabs[S.REMOVED] = [S.HEADERS[S.REMOVED]]
     tabs[S.LEDGER] = [S.HEADERS[S.LEDGER]]
     return {"title": S.SETTINGS_TITLE, "tabs": tabs, "hidden": sorted(S.HIDDEN), "passwordsFile": S.PASSWORDS_FILE}
+
+
+# ---- whole-book reads, the column upgrade, rows placed by hand -----------------
+#
+# These use the Settings last given to use_settings() (or an upload/recompile).
+
+
+def use_settings(settings: dict) -> None:
+    _state["config"] = _config(settings, {})
+
+
+def _ids(sheet_ids: dict) -> dict[str, int]:
+    return {k: int(v) for k, v in sheet_ids.items()}
+
+
+def book_ranges(year: int, titles: list[str]) -> list[str]:
+    """Every month and trip tab's rows, to find a row by key anywhere in the book."""
+    months, trips = sheetplan.month_and_trip_tabs(list(titles), int(year), _state["config"])
+    return sheetplan.data_ranges(months, trips)
+
+
+def upgrade_headers(year: int, titles: list[str]) -> list[str]:
+    return sheetplan.header_ranges(int(year), list(titles), _state["config"])
+
+
+def upgrade_columns(sheet_ids: dict, headers: dict) -> dict:
+    """Which tabs still have the old columns, and the column inserts for them."""
+    old = sheetplan.old_tabs(headers)
+    return {
+        "old": old,
+        "requests": sheetplan.insert_columns(_ids(sheet_ids), old),
+        "finish": old + sheetplan.unfinished_tabs(headers),  # then upgrade_finish these
+    }
+
+
+def upgrade_finish(sheet_ids: dict, old: list[str], values: dict) -> dict:
+    """After the inserts: headers, summaries, formats, Source and Remarks.
+    Call recompile() first so the rows' Source and statement text are known."""
+    compiled = _state.get("compiled")
+    rows = compiled.rows if compiled else []
+    clear, data, requests = sheetplan.upgrade_finish(_ids(sheet_ids), list(old), values, rows, _state["config"])
+    return {"clear": clear, "data": data, "requests": requests}
+
+
+def take_row(key: str, values: dict, sheet_ids: dict) -> dict:
+    """A row as fields plus the request removing it, to move it elsewhere."""
+    row, requests = sheetplan.take_row(key, values, _ids(sheet_ids))
+    if row and row.get("date"):
+        row["date"] = row["date"].isoformat()
+    return {"row": row, "requests": requests}
+
+
+def place_target(target: str, day: str) -> dict:
+    """Where a row goes (title, its spreadsheet's year): a trip by name, else
+    the month of its date."""
+    trip = next((t for t in _state["config"].trips if t.name == target), None)
+    if trip:
+        return {"title": trip.name, "trip": True, "year": trip.start.year, "currency": trip.currency}
+    d = date.fromisoformat(day[:10])
+    return {"title": month_title(d.year, d.month), "trip": False, "year": d.year, "currency": ""}
+
+
+def layout_cells() -> dict:
+    """Cells the app reads directly."""
+    from .accounts import TRIP_TOTAL_CELL, TRIPS_CELL
+
+    return {"trips": TRIPS_CELL, "tripTotal": TRIP_TOTAL_CELL}
+
+
+def prepare_rows(year: int, titles: list[str], rows: list[dict], target: str, created: bool = False) -> dict:
+    """Put `rows` (fields as in take_row) on `target`, a trip name or a month
+    title; with no rows, just make sure the tab exists. Then finish_rows()."""
+    config = _state["config"]
+    account_rows = [
+        AccountRow(
+            kind=r["kind"], date=date.fromisoformat(str(r["date"])[:10]), item=r.get("item", ""),
+            amount=round(abs(float(r.get("amount") or 0)), 2), remarks=r.get("remarks", ""), key=r["key"],
+            category=r.get("category", "") if r["kind"] == "spend" else "",
+            importance=r.get("importance", "") if r["kind"] == "spend" else "", source=r.get("source", ""),
+        )
+        for r in rows
+    ]
+    trip = next((t for t in config.trips if t.name == target), None)
+    if trip:
+        tabs = [Tab(trip.name, "trip", (trip.start.year, trip.start.month, 1, trip.name), list(account_rows), trip)]
+        y, m = deduction_month(trip)
+        tabs.append(Tab(month_title(y, m), "month", (y, m, 0, "")))  # its total comes off this month
+    else:
+        y, m = parse_month_title(target)
+        tabs = [Tab(target, "month", (y, m, 0, ""), list(account_rows))]
+    tabs = sorted((t for t in tabs if t.order[0] == int(year)), key=lambda t: t.order)
+    _state["placed"] = tabs
+    prepared = sheetplan.prepare(int(year), list(titles), tabs, config, created)
+    _state.setdefault("prepared", {})[int(year)] = prepared
+    return {"add": [asdict(t) for t in prepared.add], "delete": prepared.delete, "reads": prepared.reads}
+
+
+def finish_rows(year: int, sheet_ids: dict, values: dict) -> dict:
+    done = sheetplan.finish(int(year), _state["prepared"][int(year)], _ids(sheet_ids), values, _state["placed"],
+                            _state["config"], to_update=False)
+    return {"clear": done.clear, "data": done.data, "requests": done.requests, "added": done.added}
+
+
+def cash_ranges(trip_title: str) -> list[str]:
+    c = sheetplan.CASH_COLS
+    return [f"{sheetplan.quote(trip_title)}!{c[0]}4:{c[-1]}"]
+
+
+def cash_row(values: list[list], trip_title: str, fields: dict) -> list[dict]:
+    return sheetplan.cash_row(values or [], trip_title, fields)
+
+
+def trip_refresh(sheet_ids: dict) -> dict:
+    data, requests = sheetplan.trip_refresh(_ids(sheet_ids), _state["config"])
+    return {"data": data, "requests": requests}
+
+
+def trips() -> list[dict]:
+    return [{"name": t.name, "currency": t.currency, "start": t.start.isoformat(), "end": t.end.isoformat()}
+            for t in _state["config"].trips]

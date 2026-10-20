@@ -94,6 +94,7 @@ def _sync_year(gc, year: int, tabs: list[Tab], config: Config, answers: dict[str
         sh = gc.create(title, folder_id=config.google.folder_id or None)
         created = True
 
+    _upgrade_columns(sh, year, tabs, config)
     sheets = {ws.title: ws for ws in sh.worksheets()}
     prepared = sheetplan.prepare(year, [ws.title for ws in sh.worksheets()], tabs, config, created)
     for t in prepared.add:
@@ -115,6 +116,32 @@ def _sync_year(gc, year: int, tabs: list[Tab], config: Config, answers: dict[str
         answers[key]["synced"] = True
     return YearResult(title=title, url=sh.url, added=done.added, already=done.already,
                       to_update=done.to_update, fixed_in_sheet=done.fixed_in_sheet)
+
+
+def _upgrade_columns(sh, year: int, tabs: list[Tab], config: Config) -> None:
+    """Tabs made before the Source and gap columns get them (sheetplan.upgrade_finish)."""
+    titles = [ws.title for ws in sh.worksheets()]
+    headers = sheetplan.header_ranges(year, titles, config)
+    if not headers:
+        return
+    got = sh.values_batch_get(headers).get("valueRanges", [])
+    old = sheetplan.old_tabs({rng: vr.get("values", []) for rng, vr in zip(headers, got)})
+    if not old:
+        return
+    ids = {ws.title: ws.id for ws in sh.worksheets()}
+    sh.batch_update({"requests": sheetplan.insert_columns(ids, old)})
+    months, trips = sheetplan.month_and_trip_tabs(titles, year, config)
+    reads = sheetplan.data_ranges(months, trips)
+    got = sh.values_batch_get(reads, params={"valueRenderOption": "FORMULA"}).get("valueRanges", [])
+    values = {rng: vr.get("values", []) for rng, vr in zip(reads, got)}
+    rows = [r for tab in tabs for r in tab.rows]
+    clear, data, requests = sheetplan.upgrade_finish(ids, old, values, rows, config)
+    for rng in clear:
+        sh.values_clear(rng)
+    if data:
+        sh.values_batch_update({"valueInputOption": "USER_ENTERED", "data": data})
+    if requests:
+        sh.batch_update({"requests": requests})
 
 
 # ---- one-time: config.toml -> Drive, for the website and phone app -------------

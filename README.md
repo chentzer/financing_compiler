@@ -158,10 +158,11 @@ Statements that overlap (the same period exported twice) are deduplicated.
 2. **Only your spending, and money in from other people, is recorded.**
 3. **Everything else is recorded, and you fill in what the statement
    doesn't say.** If the statement gives a purpose, it becomes the Item:
-   `TAN MEI LING - DuitNowID - lunch` becomes Item *Lunch*, Remarks *To Zai
-   Yi*. If it doesn't (only "DuitNow QR" or a reference number), the row
-   still goes in, as Item *Transfer* or *QR payment* with Remarks *From Yi
-   Bei*, for you to edit in the sheet. Card charges use the shop name.
+   `JANE TAN - DuitNowID - lunch` becomes Item *Lunch*. If it doesn't (only
+   "DuitNow QR" or a reference number), the row still goes in, as Item
+   *Transfer* or *QR payment*, for you to fill in. Card charges use the shop
+   name. Source is the bank or wallet; Remarks starts as the statement's own
+   text and is yours to change.
    Category and Importance come from `[[rules]]` in `config.toml`, or are
    left blank and add up under **Not set** in the month's summary.
 
@@ -177,8 +178,8 @@ them **one card at a time**:
 +--------------------------------------------------------------------+
 | 3 of 18                                     needs: what it was for |
 | 05 Sep 2026   +RM 20.00   Ryt Bank                                 |
-| From Jia Hao                                                       |
-| Statement: From KOH JIA HAO - Transfer - Fund Transfer              |
+| From Bob Lim                                                       |
+| Statement: From BOB LIM - Transfer - Fund Transfer                 |
 | Recorded as: Transfer                                              |
 +--------------------------------------------------------------------+
   What was it for?
@@ -202,8 +203,8 @@ from the Spendings or Earnings block.
 
 `--no-review` skips the cards for one run. They wait in To Update.
 
-Names in Remarks are shortened ("TAN MEI LING" → "Mei Ling"). To set a name
-yourself, add it under `[people]` in `config.toml`.
+Names on the cards are shortened ("TAN MEI LING" → "Mei Ling"). To set a
+name yourself, add it under `[people]` in `config.toml`.
 
 ## Monthly accounts (your template)
 
@@ -211,19 +212,25 @@ Each run also writes `output/<year> Accounts.xlsx` in the layout of
 `Account Template.xlsx`, and `--upload` puts the same thing in a Google
 Sheet named `<year> Accounts`:
 
-- One tab per month (`July 2026`): **Spendings** in A–F (Date, Item,
-  Category, Amount, Importance, Remarks), **Earnings** in N–Q.
-- Spending by Category (H–I), by Importance (K–L), and Earnings / Spendings /
-  **Final** in S–T. Final carries over from the previous month.
+- One tab per month (`July 2026`): **Spendings** in A–G (Date, Item,
+  Category, Amount, Importance, Source, Remarks), **Earnings** in P–T (Date,
+  Item, Amount, Source, Remarks), with a blank column between sections and
+  coloured headers.
+- Spending by Category (J–K), by Importance (M–N), and Earnings / Spendings /
+  **Final** in W–X. Final carries over from the previous month.
 - A **Year End Summary** tab with total earnings, spending and the difference.
 - Category and Importance have the template's dropdowns. `[[rules]]` in
   `config.toml` fills what it can, and the rest is left blank for you.
-- Remarks shows which bank or wallet the row came from.
+- Source is the bank or wallet the row came from; Remarks starts as the
+  statement text, for your own note.
+- Tabs made before Source and the blank columns existed are converted the
+  first time the app opens them (columns are inserted, so rows and your
+  edits stay).
 - Internal transfers (wallet reloads, card repayments, GO+ moves) are left out.
 
 Differences from the old workbook: the summaries are SUMIF formulas, not
 pivot tables. Pivot tables don't survive the move to Google Sheets and need
-manual refreshing. Final always sits in T6, and the Year End Summary adds up
+manual refreshing. Final always sits in X6, and the Year End Summary adds up
 every month tab (the 2022 formula skipped some months).
 
 ### Trips
@@ -233,10 +240,10 @@ It gets its own tab, laid out like the 2023 "Japan Trip" sheet:
 
 | Columns | What | Filled by |
 |---|---|---|
-| A–F | RM spending: flights, hotels, card charges abroad | fincomp, from statements |
-| H–M | Cash spending in the trip currency | you |
-| O–P | Spent in RM, Spent in Yen, rate, **Trip Total (RM)** in P8, Yen received / left (expected) / left (counted) / unaccounted | formulas, except "left (counted)" |
-| Q–T | Yen received: money exchange, leftover from parents, friends paying back | you |
+| A–G | RM spending: flights, hotels, card charges abroad | fincomp, from statements; or added in the app |
+| J–O | Spending in the trip currency | you, or "Add transaction" with "Amount is in <currency>" |
+| Q–R | Spent in RM, Spent in Yen, rate, **Trip Total (RM)** in R8, Yen received / left (expected) / left (counted) / unaccounted | formulas, except "left (counted)" |
+| T–W | Yen received: money exchange, leftover from parents, friends paying back | you |
 
 What goes to the trip tab: statement spending dated within the trip, plus
 earlier bookings whose description matches the trip's `match` keywords, or
@@ -249,12 +256,13 @@ money is counted when you spend the yen. If you don't set `rate`, the rate
 is worked out from that row and the matching "Money Exchange" row in Q–T.
 
 The trip tab goes right after the month the trip starts. The month it ends
-shows the trip total under **Trips** (T5), and that month's Final subtracts
+shows the trip total under **Trips** (X5), and that month's Final subtracts
 it. The Year End Summary counts trips in Total Spending.
 
-Declare the trip **before** uploading statements from those dates. A row
-already uploaded to a month tab isn't moved. To move it, delete it from the
-month tab and run `--upload` again, and it will be added to the trip tab.
+In the app, a trip's tab is made as soon as you add it in Settings › Trips
+("Get today's rate" fills in the exchange rate). Any spending row can be
+moved onto a trip, or back, from its edit screen, and "Add transaction"
+adds one by hand to a month or a trip.
 
 Tabs you make yourself, like "Chinese New Year", are never touched or moved.
 

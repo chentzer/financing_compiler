@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { PinGate } from '../components/PinGate'
+import { CURRENCIES, currencyCode, rateToRm } from '../data/fx'
 import { errorText, useData, useLoad } from '../app/context'
 import { shortDate } from '../app/format'
 import { href } from '../app/router'
@@ -341,6 +342,8 @@ function PersonSheet({ person, onClose, onSave }: { person?: Person; onClose(): 
 function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; onSave: SaveFn<Trip> }) {
   const [t, setT] = useState<Trip>(trip ?? { name: '', start: '', end: '', match: [] })
   const [match, setMatch] = useState((trip?.match ?? []).join(', '))
+  const [rateBusy, setRateBusy] = useState(false)
+  const [rateNote, setRateNote] = useState<string>()
   const valid = t.name.trim() && t.start && t.end && t.start <= t.end
   return (
     <Sheet title={trip ? 'Edit trip' : 'New trip'} onClose={onClose}>
@@ -370,7 +373,17 @@ function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; on
         </div>
         <div className="two">
           <Field label="Currency" hint="Blank for local trips">
-            <input value={t.currency ?? ''} onChange={(e) => setT({ ...t, currency: e.target.value })} placeholder="e.g. Yen" />
+            <input
+              value={t.currency ?? ''}
+              onChange={(e) => setT({ ...t, currency: e.target.value })}
+              placeholder="e.g. JPY"
+              list="currencies"
+            />
+            <datalist id="currencies">
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
           <Field label="RM per 1 unit" hint="Blank = from Money Exchange rows">
             <input
@@ -382,6 +395,31 @@ function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; on
             />
           </Field>
         </div>
+        {t.currency?.trim() && (
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn small"
+              disabled={rateBusy}
+              onClick={async () => {
+                setRateBusy(true)
+                setRateNote(undefined)
+                try {
+                  const rate = await rateToRm(t.currency!)
+                  setT({ ...t, rate: Number(rate.toPrecision(6)) })
+                  setRateNote(`Today's rate: RM ${rate.toPrecision(6)} per 1 ${currencyCode(t.currency!)}`)
+                } catch (e) {
+                  setRateNote(errorText(e))
+                } finally {
+                  setRateBusy(false)
+                }
+              }}
+            >
+              {rateBusy ? 'Looking up…' : "Get today's rate"}
+            </button>
+            {rateNote && <span className="muted small">{rateNote}</span>}
+          </div>
+        )}
         <Field label="Earlier bookings containing" hint="Comma-separated, e.g. AIRASIA, AGODA">
           <input value={match} onChange={(e) => setMatch(e.target.value)} />
         </Field>

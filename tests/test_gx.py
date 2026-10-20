@@ -82,7 +82,7 @@ def test_rows_types_and_self_transfers():
 def test_into_accounts(tmp_path):
     cfg = Config(answers=tmp_path / "a.json", rules=[{"match": "GRAB", "category": "Transport"}])
     rows = build_rows(parse_text(STATEMENT), cfg)
-    assert [(r.kind, r.item, r.amount, r.remarks, r.category) for r in rows] == [
+    assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source, r.category) for r in rows] == [
         ("spend", "Grab Ride", 12.00, "GX Bank", "Transport"),
         ("earn", "Interest earned", 0.01, "GX Bank", ""),
         ("spend", "KEDAI MAKAN SEDAP", 8.50, "GX Bank", ""),  # QR to a shop: recorded, Category left to you

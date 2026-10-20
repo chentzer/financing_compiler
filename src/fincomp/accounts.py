@@ -2,20 +2,22 @@
 of the user's Account Template.xlsx plus trip tabs like "Japan Trip" in
 2023 Accounts.xlsx.
 
-Month tab ("January 2026"):
-  A-F  Spendings: Date, Item, Category, Amount (RM), Importance, Remarks
-  G    hidden key that lets re-runs recognise rows already uploaded
-  H-I  spending by Category      K-L  spending by Importance
-  N-Q  Earnings: Date, Item, Amount (RM), Remarks
-  R    hidden key
-  S-T  Earnings, Spendings, Trips (trips that ended this month), and
-       Final in T6: last month's Final + earnings - spending - trips
+Month tab ("January 2026"), a blank column between sections:
+  A-G  Spendings: Date, Item, Category, Amount (RM), Importance, Source, Remarks
+  H    hidden key that lets re-runs recognise rows already uploaded
+  J-K  spending by Category      M-N  spending by Importance
+  P-T  Earnings: Date, Item, Amount (RM), Source, Remarks
+  U    hidden key
+  W-X  Earnings, Spendings, Trips (trips that ended this month), and
+       Final in X6: last month's Final + earnings - spending - trips
+Source is the bank or wallet; Remarks starts as the statement's own text
+and is yours to overwrite.
 
 Trip tab ("Japan Trip"), data from row 4:
-  A-F  RM spending (bookings, card charges abroad)     G hidden key
-  H-M  cash spending in the trip currency (typed by hand)
-  O-P  summary, trip total in P8
-  Q-T  trip currency received: money exchange, gifts, repayments (by hand)
+  A-G  RM spending (bookings, card charges abroad)     H hidden key
+  J-O  spending in the trip currency
+  Q-R  summary, trip total in R8
+  T-W  trip currency received: money exchange, gifts, repayments
 
 The template used pivot tables for the summaries. They don't survive a trip
 to Google Sheets and need refreshing, so they are SUMIF formulas instead.
@@ -37,11 +39,29 @@ FIRST_ROW = 3  # month tabs: rows 1-2 are headers
 TRIP_FIRST_ROW = 4  # trip tabs: title in row 1, headers in row 3
 XLSX_LAST_ROW = 2000  # bounded ranges for Excel; Sheets gets open-ended ones
 
-SPEND_HEADERS = ["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks"]
-EARN_HEADERS = ["Date", "Item", "Amount (RM)", "Remarks"]
-TRIPS_CELL = "T5"
-FINAL_CELL = "T6"
-TRIP_TOTAL_CELL = "P8"
+SPEND_HEADERS = ["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks"]
+EARN_HEADERS = ["Date", "Item", "Amount (RM)", "Source", "Remarks"]
+CASH_HEADERS = ["Date", "Item", "Category", "Amount", "Importance", "Remarks"]  # Amount (<currency>)
+# Month tab columns.
+SPEND_COLS, SPEND_KEY = "ABCDEFG", "H"
+CAT_COLS, IMP_COLS = "JK", "MN"
+EARN_COLS, EARN_KEY = "PQRST", "U"
+SUMMARY_COLS = "WX"
+EARNINGS_CELL, SPENDINGS_CELL, TRIPS_CELL, FINAL_CELL = "X3", "X4", "X5", "X6"
+# Trip tab columns.
+CASH_COLS = "JKLMNO"
+TRIP_SUMMARY_COLS = "QR"
+RECEIVED_COLS = "TUVW"
+TRIP_TOTAL_CELL = "R8"
+TRIP_RATE_CELL = "R6"
+# Light header fills per section.
+COLOURS = {
+    "spend": {"red": 0.99, "green": 0.89, "blue": 0.88},
+    "earn": {"red": 0.86, "green": 0.96, "blue": 0.88},
+    "summary": {"red": 0.86, "green": 0.92, "blue": 0.99},
+    "final": {"red": 1.0, "green": 0.94, "blue": 0.75},
+    "cash": {"red": 0.93, "green": 0.9, "blue": 0.99},
+}
 MONEY_EXCHANGE = "Money Exchange"  # Item name that marks RM -> trip currency
 YEAR_SUMMARY = "Year End Summary"
 
@@ -55,6 +75,7 @@ class AccountRow:
     remarks: str
     key: str
     category: str = ""
+    who: str = ""  # "To Jane Tan" or the shop: shown on the To Update card
     importance: str = ""
     trip: str = ""  # trip name when this spending belongs on a trip tab
     # What the user still has to fill in: "purpose" (the Item is only
@@ -66,8 +87,9 @@ class AccountRow:
 
     def values(self) -> list:
         if self.kind == "spend":
-            return [self.date, self.item, self.category, self.amount, self.importance, self.remarks, self.key]
-        return [self.date, self.item, self.amount, self.remarks, self.key]
+            return [self.date, self.item, self.category, self.amount, self.importance, self.source, self.remarks,
+                    self.key]
+        return [self.date, self.item, self.amount, self.source, self.remarks, self.key]
 
 
 def month_title(year: int, month: int) -> str:
@@ -172,12 +194,15 @@ def _classify(transactions: list[Transaction], config: Config, answers: dict[str
         answer = answers.get(key, {})
         if rule.get("skip") or answer.get("skip") or key in config.removed:
             continue
-        if t.counterparty:
-            person = short_name(t.counterparty, config.people)
-            remarks = f"From {person}" if t.amount > 0 else f"To {person}"
-        else:
-            remarks = t.source
-        yield key, t, rule, answer, remarks
+        yield key, t, rule, answer, who_of(t, config.people)
+
+
+def who_of(t: Transaction, people: dict[str, str]) -> str:
+    """"To Jane Tan" / "From Jane Tan", or the shop: for the To Update card."""
+    if t.counterparty:
+        person = short_name(t.counterparty, people)
+        return f"From {person}" if t.amount > 0 else f"To {person}"
+    return t.description
 
 
 def build_rows(
@@ -185,9 +210,9 @@ def build_rows(
 ) -> list[AccountRow]:
     """Rows for the accounts: everything that isn't excluded (rules 1-2).
     Rows the statement doesn't explain go in with what it does say, e.g.
-    Item "Transfer", Remarks "From Siew Wen", Category blank."""
+    Item "Transfer", Category blank, Remarks the statement's text."""
     rows = []
-    for key, t, rule, answer, remarks in _classify(transactions, config, answers or {}):
+    for key, t, rule, answer, who in _classify(transactions, config, answers or {}):
         category = answer.get("category") or rule.get("category", "")
         importance = answer.get("importance") or rule.get("importance", "")
         item = answer.get("item") or rule.get("item") or _sentence(t.purpose) or _fallback_item(t)
@@ -205,8 +230,9 @@ def build_rows(
                 date=t.date,
                 item=item,
                 amount=round(abs(t.amount), 2),
-                remarks=answer.get("remarks") or rule.get("remarks") or remarks,
+                remarks=answer.get("remarks") or rule.get("remarks") or t.description,
                 key=key,
+                who=who,
                 category=category,
                 importance=importance if importance in config.importance else "",
                 trip=find_trip(config.trips, t, rule),
@@ -237,7 +263,7 @@ def to_update_table(tabs: list["Tab"], resolved: set[str] = frozenset()) -> list
         for r in tab.rows:
             if r.needs and r.key not in resolved:
                 table.append([
-                    r.date, r.amount if r.kind == "earn" else -r.amount, r.remarks, r.statement,
+                    r.date, r.amount if r.kind == "earn" else -r.amount, r.who, r.statement,
                     r.item, ", ".join(labels[n] for n in r.needs), tab.title, r.key,
                 ])
     if len(table) == 1:
@@ -248,7 +274,7 @@ def to_update_table(tabs: list["Tab"], resolved: set[str] = frozenset()) -> list
 def _fallback_item(t: Transaction) -> str:
     """Item when the statement gives no purpose: the shop name for a card
     charge, or how the money moved for a person ("Transfer", "QR payment");
-    who it was is already in Remarks."""
+    who it was is on the To Update card."""
     if not t.counterparty:
         return t.description
     return "QR payment" if "QR" in t.type.upper() else "Transfer"
@@ -337,17 +363,18 @@ def quote(title: str) -> str:
 
 def month_layout(config: Config, open_ended: bool) -> dict[str, object]:
     """Header and summary cells of a month tab, as {cell: value or formula}.
-    T5 and T6 depend on the other tabs; see month_links()."""
-    cells: dict[str, object] = {"A1": "Spendings", "N1": "Earnings"}
-    for col, h in zip("ABCDEF", SPEND_HEADERS):
+    X5 and X6 depend on the other tabs; see month_links()."""
+    cells: dict[str, object] = {"A1": "Spendings", f"{EARN_COLS[0]}1": "Earnings"}
+    for col, h in zip(SPEND_COLS, SPEND_HEADERS):
         cells[f"{col}2"] = h
-    for col, h in zip("NOPQ", EARN_HEADERS):
+    for col, h in zip(EARN_COLS, EARN_HEADERS):
         cells[f"{col}2"] = h
-    cells["G2"] = "Key"
-    cells["R2"] = "Key"
+    cells[f"{SPEND_KEY}2"] = "Key"
+    cells[f"{EARN_KEY}2"] = "Key"
     amounts = _rng("D", FIRST_ROW, open_ended)
 
-    def block(label_col: str, value_col: str, data_col: str, heading: str, labels: list[str]) -> None:
+    def block(cols: str, data_col: str, heading: str, labels: list[str]) -> None:
+        label_col, value_col = cols
         cells[f"{label_col}2"] = heading
         cells[f"{value_col}2"] = "Spent (RM)"
         crit = _rng(data_col, FIRST_ROW, open_ended)
@@ -361,17 +388,18 @@ def month_layout(config: Config, open_ended: bool) -> dict[str, object]:
         cells[f"{label_col}{row + 1}"] = "Total"
         cells[f"{value_col}{row + 1}"] = f"=SUM({amounts})"
 
-    block("H", "I", "C", "Category", config.categories)
-    block("K", "L", "E", "Importance", config.importance)
+    block(CAT_COLS, "C", "Category", config.categories)
+    block(IMP_COLS, "E", "Importance", config.importance)
 
-    cells["S2"] = "Summary"
-    cells["T2"] = "RM"
-    cells["S3"] = "Earnings"
-    cells["T3"] = f"=SUM({_rng('P', FIRST_ROW, open_ended)})"
-    cells["S4"] = "Spendings"
-    cells["T4"] = f"=SUM({amounts})"
-    cells["S5"] = "Trips"
-    cells["S6"] = "Final"
+    label = SUMMARY_COLS[0]
+    cells[f"{label}2"] = "Summary"
+    cells[f"{SUMMARY_COLS[1]}2"] = "RM"
+    cells[f"{label}3"] = "Earnings"
+    cells[EARNINGS_CELL] = f"=SUM({_rng(EARN_COLS[2], FIRST_ROW, open_ended)})"
+    cells[f"{label}4"] = "Spendings"
+    cells[SPENDINGS_CELL] = f"=SUM({amounts})"
+    cells[f"{label}5"] = "Trips"
+    cells[f"{label}6"] = "Final"
     return cells
 
 
@@ -380,59 +408,60 @@ def trip_layout(trip: Trip, config: Config, open_ended: bool) -> dict[str, objec
     cells: dict[str, object] = {"A1": trip.name}
     if trip.link:
         cells["C1"] = f'=HYPERLINK("{trip.link}","Trip Link")'
-    for col, h in zip("ABCDEF", SPEND_HEADERS):
+    for col, h in zip(SPEND_COLS, SPEND_HEADERS):
         cells[f"{col}3"] = h
-    cells["G3"] = "Key"
+    cells[f"{SPEND_KEY}3"] = "Key"
 
+    L, V = TRIP_SUMMARY_COLS
     rm = _rng("D", r, open_ended)
     items = _rng("B", r, open_ended)
-    cells["O3"] = "Summary"
-    cells["P3"] = "Amount"
-    cells["O4"] = "Spent in RM"
-    cells["P4"] = f'=SUM({rm})-SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
+    cells[f"{L}3"] = "Summary"
+    cells[f"{V}3"] = "Amount"
+    cells[f"{L}4"] = "Spent in RM"
+    cells[f"{V}4"] = f'=SUM({rm})-SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
 
     cur = trip.currency
     if not cur:
-        cells["O8"] = "Trip Total (RM)"
-        cells[TRIP_TOTAL_CELL] = "=P4"
+        cells[f"{L}8"] = "Trip Total (RM)"
+        cells[TRIP_TOTAL_CELL] = f"={V}4"
         return cells
 
-    for col, h in zip("HIJKLM", ["Date", "Item", "Category", f"Amount ({cur})", "Importance", "Remarks"]):
+    for col, h in zip(CASH_COLS, CASH_HEADERS):
+        cells[f"{col}3"] = f"Amount ({cur})" if h == "Amount" else h
+    for col, h in zip(RECEIVED_COLS, ["Date", "Item", f"Amount ({cur})", "Remarks"]):
         cells[f"{col}3"] = h
-    for col, h in zip("QRST", ["Date", "Item", f"Amount ({cur})", "Remarks"]):
-        cells[f"{col}3"] = h
-    cells["H2"] = f"Cash spending in {cur} (fill in yourself)"
-    cells["Q2"] = f"{cur} received: money exchange, gifts, repayments"
+    cells[f"{CASH_COLS[0]}2"] = f"Spending in {cur}"
+    cells[f"{RECEIVED_COLS[0]}2"] = f"{cur} received: money exchange, gifts, repayments"
 
-    received = _rng("S", r, open_ended)
-    received_items = _rng("R", r, open_ended)
-    cells["O5"] = f"Spent in {cur}"
-    cells["P5"] = f"=SUM({_rng('K', r, open_ended)})"
-    cells["O6"] = f"RM per 1 {cur}"
+    received = _rng(RECEIVED_COLS[2], r, open_ended)
+    received_items = _rng(RECEIVED_COLS[1], r, open_ended)
+    cells[f"{L}5"] = f"Spent in {cur}"
+    cells[f"{V}5"] = f"=SUM({_rng(CASH_COLS[3], r, open_ended)})"
+    cells[f"{L}6"] = f"RM per 1 {cur}"
     if trip.rate:
-        cells["P6"] = trip.rate
+        cells[TRIP_RATE_CELL] = trip.rate
     else:
         # Worked out from what the exchange cost and what it gave you.
-        cells["P6"] = (
+        cells[TRIP_RATE_CELL] = (
             f'=IFERROR(SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
             f'/SUMIF({received_items},"{MONEY_EXCHANGE}",{received}),0)'
         )
-    cells["O7"] = f"{cur} spending in RM"
-    cells["P7"] = "=P5*P6"
-    cells["O8"] = "Trip Total (RM)"
-    cells[TRIP_TOTAL_CELL] = "=P4+P7"
-    cells["O10"] = f"{cur} received"
-    cells["P10"] = f"=SUM({received})"
-    cells["O11"] = f"{cur} left (expected)"
-    cells["P11"] = "=P10-P5"
-    cells["O12"] = f"{cur} left (counted)"
-    cells["O13"] = "Unaccounted"
-    cells["P13"] = '=IF(P12="","",P12-P11)'
+    cells[f"{L}7"] = f"{cur} spending in RM"
+    cells[f"{V}7"] = f"={V}5*{V}6"
+    cells[f"{L}8"] = "Trip Total (RM)"
+    cells[TRIP_TOTAL_CELL] = f"={V}4+{V}7"
+    cells[f"{L}10"] = f"{cur} received"
+    cells[f"{V}10"] = f"=SUM({received})"
+    cells[f"{L}11"] = f"{cur} left (expected)"
+    cells[f"{V}11"] = f"={V}10-{V}5"
+    cells[f"{L}12"] = f"{cur} left (counted)"
+    cells[f"{L}13"] = "Unaccounted"
+    cells[f"{V}13"] = f'=IF({V}12="","",{V}12-{V}11)'
     return cells
 
 
 def month_links(month_titles: list[str], trips: list[Trip], trip_titles: set[str]) -> dict[str, dict[str, str]]:
-    """T5 (trips paid this month) and T6 (Final) for every month tab. Written
+    """X5 (trips paid this month) and X6 (Final) for every month tab. Written
     on every run because tabs and trips can be added later."""
     by_month: dict[tuple[int, int], list[str]] = {}
     for trip in trips:
@@ -445,7 +474,10 @@ def month_links(month_titles: list[str], trips: list[Trip], trip_titles: set[str
         paid = by_month.get(parse_month_title(title), [])
         trips_formula = "=" + "+".join(f"{quote(t)}!{TRIP_TOTAL_CELL}" for t in paid) if paid else 0
         carried = f"{quote(ordered[i - 1])}!{FINAL_CELL}+" if i else ""
-        out[title] = {TRIPS_CELL: trips_formula, FINAL_CELL: f"={carried}T3-T4-T5"}
+        out[title] = {
+            TRIPS_CELL: trips_formula,
+            FINAL_CELL: f"={carried}{EARNINGS_CELL}-{SPENDINGS_CELL}-{TRIPS_CELL}",
+        }
     return out
 
 
@@ -453,8 +485,8 @@ def year_summary_cells(month_titles: list[str], trip_titles: list[str]) -> dict[
     if not month_titles:
         return {}
     months = sorted(month_titles, key=parse_month_title)
-    earnings = "+".join(f"{quote(t)}!T3" for t in months)
-    spending = "+".join(f"{quote(t)}!T4" for t in months)
+    earnings = "+".join(f"{quote(t)}!{EARNINGS_CELL}" for t in months)
+    spending = "+".join(f"{quote(t)}!{SPENDINGS_CELL}" for t in months)
     trips = "+".join(f"{quote(t)}!{TRIP_TOTAL_CELL}" for t in trip_titles) or "0"
     return {
         "A1": "Total Earnings", "B1": f"={earnings}",

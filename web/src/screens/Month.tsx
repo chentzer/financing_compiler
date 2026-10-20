@@ -4,7 +4,7 @@ import { dayMonth, monthName, rm, signedRm } from '../app/format'
 import { href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
-import { IMPORTANCE, type MonthSummary, type Row } from '../data/Backend'
+import { IMPORTANCE, STATEMENT_SOURCES, type Kind, type MonthSummary, type NewRow, type Row, type Trip } from '../data/Backend'
 
 export function Month({ year, month }: { year?: number; month?: number }) {
   const months = useLoad((b) => b.listMonths())
@@ -48,6 +48,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
     [year, month],
   )
   const [editing, setEditing] = useState<Row>()
+  const [adding, setAdding] = useState(false)
 
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
@@ -60,6 +61,11 @@ function MonthBody({ year, month }: { year: number; month: number }) {
     <div className="month-grid">
       <Summary s={summary} />
       <div className="stack">
+        <div className="btn-row end">
+          <button className="btn" onClick={() => setAdding(true)}>
+            + Add transaction
+          </button>
+        </div>
         {/* Side by side when there's room, as in the sheet; stacked on a phone. */}
         <div className="lists-pair">
           <RowList title="Spendings" rows={spend} onTap={setEditing} />
@@ -68,6 +74,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
         {trip.length > 0 && <RowList title="Trips" rows={trip} onTap={setEditing} />}
       </div>
       {editing && <EditRow row={editing} onClose={() => setEditing(undefined)} />}
+      {adding && <AddRow year={year} month={month} onClose={() => setAdding(false)} />}
     </div>
   )
 }
@@ -157,16 +164,22 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
 
 function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
   const { backend, changed, toast } = useData()
-  const [f, setF] = useState({ item: row.item, category: row.category, importance: row.importance, remarks: row.remarks })
+  const [f, setF] = useState({
+    item: row.item, category: row.category, importance: row.importance, remarks: row.remarks, source: row.source,
+  })
+  const trips = useLoad((b) => b.getSettings().then((s) => s.trips))
+  const [moveTo, setMoveTo] = useState(row.trip ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const isSpend = row.kind === 'spend'
+  const byHand = row.key.startsWith('manual:') // typed straight into the sheet: no key to find it by
 
   async function save() {
     setBusy(true)
     try {
-      await backend.editRow(row.key, isSpend ? f : { item: f.item, remarks: f.remarks })
-      toast('Row updated')
+      await backend.editRow(row.key, isSpend ? f : { item: f.item, remarks: f.remarks, source: f.source })
+      if (isSpend && moveTo !== (row.trip ?? '')) await backend.moveRow(row.key, moveTo || null)
+      toast(moveTo !== (row.trip ?? '') ? (moveTo ? `Moved to ${moveTo}` : 'Moved back to its month') : 'Row updated')
       changed()
       onClose()
     } catch (e) {
@@ -201,7 +214,142 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
             </Field>
           </>
         )}
-        <Field label="Remarks">
+        <SourceField value={f.source} onChange={(source) => setF({ ...f, source })} />
+        <Field label="Remarks" hint="Your own note">
+          <input value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} />
+        </Field>
+        {isSpend && !byHand && (trips.data?.length ?? 0) > 0 && (
+          <Field label="Trip" hint="Move this spending onto a trip's tab">
+            <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+              <option value="">Not on a trip (its month)</option>
+              {trips.data!.map((t) => (
+                <option key={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {byHand && <p className="muted small">This row was typed straight into the sheet, so edit it there.</p>}
+        {error && <p className="error-text">{error}</p>}
+        <div className="btn-row end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || byHand || !f.item.trim()}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Sheet>
+  )
+}
+
+const SOURCES = [...STATEMENT_SOURCES.map((s) => s.label), 'Cash']
+
+/** Bank, wallet or anything you type (e.g. "Cash"). */
+function SourceField({ value, onChange }: { value: string; onChange(v: string): void }) {
+  return (
+    <Field label="Source" hint="Bank or wallet it's from">
+      <input value={value} onChange={(e) => onChange(e.target.value)} list="sources" placeholder="e.g. Maybank, Cash" />
+      <datalist id="sources">
+        {SOURCES.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+    </Field>
+  )
+}
+
+function AddRow({ year, month, onClose }: { year: number; month: number; onClose(): void }) {
+  const { backend, changed, toast } = useData()
+  const trips = useLoad((b) => b.getSettings().then((s) => s.trips))
+  const today = new Date()
+  const inMonth = today.getFullYear() === year && today.getMonth() + 1 === month
+  const firstDay = `${year}-${String(month).padStart(2, '0')}-01`
+  const [f, setF] = useState<NewRow>({
+    kind: 'spend', date: inMonth ? today.toISOString().slice(0, 10) : firstDay, item: '', amount: 0,
+    category: '', importance: '', source: '', remarks: '', trip: '',
+  })
+  const [amount, setAmount] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const isSpend = f.kind === 'spend'
+  const trip: Trip | undefined = trips.data?.find((t) => t.name === f.trip)
+  const valid = f.item.trim() !== '' && Number(amount) > 0 && !!f.date
+
+  async function save() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await backend.addRow({ ...f, amount: Number(amount), trip: isSpend ? f.trip || undefined : undefined,
+        inTripCurrency: isSpend && !!trip?.currency && f.inTripCurrency })
+      toast(f.trip && isSpend ? `Added to ${f.trip}` : 'Added')
+      changed()
+      onClose()
+    } catch (e) {
+      setError(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet title="Add transaction" onClose={onClose}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (valid) save()
+        }}
+      >
+        <Chips<Kind>
+          label="Spending or earning"
+          options={['spend', 'earn']}
+          value={f.kind}
+          onChange={(k) => setF({ ...f, kind: k || f.kind })}
+          names={{ spend: 'Spending', earn: 'Earning' }}
+        />
+        <div className="two">
+          <Field label="Date">
+            <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
+          </Field>
+          <Field label={`Amount (${isSpend && trip?.currency && f.inTripCurrency ? trip.currency : 'RM'})`}>
+            <input type="number" inputMode="decimal" step="0.01" min="0" value={amount}
+              onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+          </Field>
+        </div>
+        <Field label="Item">
+          <input value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} placeholder="e.g. Dinner" autoFocus />
+        </Field>
+        {isSpend && (trips.data?.length ?? 0) > 0 && (
+          <Field label="Trip">
+            <select value={f.trip} onChange={(e) => setF({ ...f, trip: e.target.value, inTripCurrency: false })}>
+              <option value="">Not on a trip</option>
+              {trips.data!.map((t) => (
+                <option key={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {isSpend && trip?.currency && (
+          <label className="toggle">
+            <input type="checkbox" checked={!!f.inTripCurrency} onChange={(e) => setF({ ...f, inTripCurrency: e.target.checked })} />
+            <span className="switch" aria-hidden />
+            <span>Amount is in {trip.currency} (e.g. cash spent there)</span>
+          </label>
+        )}
+        {isSpend && (
+          <>
+            <Field label="Category">
+              <CategoryPicker value={f.category ?? ''} onChange={(v) => setF({ ...f, category: v })} />
+            </Field>
+            <Field label="Importance" hint="Optional">
+              <Chips label="Importance" options={IMPORTANCE} value={f.importance ?? ''} onChange={(v) => setF({ ...f, importance: v })} />
+            </Field>
+          </>
+        )}
+        {!(isSpend && trip?.currency && f.inTripCurrency) && (
+          <SourceField value={f.source ?? ''} onChange={(source) => setF({ ...f, source })} />
+        )}
+        <Field label="Remarks" hint="Optional">
           <input value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} />
         </Field>
         {error && <p className="error-text">{error}</p>}
@@ -209,8 +357,8 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || !f.item.trim()}>
-            Save
+          <button className="btn primary" disabled={busy || !valid}>
+            {busy ? 'Adding…' : 'Add'}
           </button>
         </div>
       </form>
