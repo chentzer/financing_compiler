@@ -119,20 +119,33 @@ def test_trip_layout_matches_japan_sheet():
     assert cells["A1"] == "Japan Trip" and cells["C1"] == '=HYPERLINK("https://example.com/plan","Trip Link")'
     assert [cells[f"{c}3"] for c in "ABCDEFG"] == [
         "Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks"]
-    assert cells["M3"] == "Amount (Yen)" and cells["V3"] == "Amount (Yen)" and cells["U3"] == "Item"
-    assert cells["R5"] == "=SUM($M$4:$M)" and cells["R10"] == "=SUM($V$4:$V)"
+    # Paid back to you (RM), like the 2025 trip sheets.
+    assert [cells[f"{c}3"] for c in "JKLMN"] == ["Date", "From", "Amount (RM)", "Remarks", "Key"]
+    # The yen spending block starts at S; money received in other currencies after it.
+    assert cells["S2"] == "Spending in Yen" and cells["V3"] == "Amount (Yen)"
+    assert [cells[f"{c}3"] for c in ("Z", "AA", "AB", "AC", "AD")] == ["Date", "Item", "Currency", "Amount", "Remarks"]
     # Money Exchange is paid in RM but spent as yen, so it isn't counted twice.
-    assert cells["R4"] == '=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
-    assert cells["R6"].startswith('=IFERROR(SUMIF($B$4:$B,"Money Exchange"')
-    assert cells["R8"] == "=R4+R7"
+    assert cells["Q5"] == '=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
+    assert cells["Q6"] == "=SUM($L$4:$L)" and cells["Q8"] == "=SUM($V$4:$V)" and cells["Q10"] == "=Q8*Q9"
+    assert cells["Q4"] == "=Q5-Q6+Q10"  # what you really paid
     domestic = trip_layout(Trip("Penang", date(2026, 1, 1), date(2026, 1, 3)), Config(), open_ended=True)
-    assert domestic["R8"] == "=R4" and "M3" not in domestic
+    assert domestic["Q4"] == "=Q5-Q6" and "S2" not in domestic
+
+
+def test_trip_with_several_currencies():
+    europe = Trip("Europe", date(2024, 10, 20), date(2024, 10, 24), currency="CHF", rate=5.1,
+                  extra=[("EUR", 4.9), ("GBP", None)])
+    cells = trip_layout(europe, Config(), open_ended=True)
+    assert (cells["S2"], cells["Z2"], cells["AG2"]) == ("Spending in CHF", "Spending in EUR", "Spending in GBP")
+    assert cells["AC3"] == "Amount (EUR)" and cells["AN3"] == "Date" and cells["AP3"] == "Currency"  # received after GBP
+    assert (cells["Q9"], cells["Q13"], cells["Q17"]) == (5.1, 4.9, "")  # each currency's rate
+    assert cells["Q4"] == "=Q5-Q6+Q10+Q14+Q18"
 
 
 def test_final_subtracts_trip_in_its_end_month():
     links = month_links(["October 2026", "November 2026", "December 2026"], [JAPAN], {"Japan Trip"})
     assert links["October 2026"] == {"X5": 0, "X6": "=X3-X4-X5"}
-    assert links["November 2026"] == {"X5": "='Japan Trip'!R8", "X6": "='October 2026'!X6+X3-X4-X5"}
+    assert links["November 2026"] == {"X5": "='Japan Trip'!Q4", "X6": "='October 2026'!X6+X3-X4-X5"}
     assert links["December 2026"]["X5"] == 0
 
 
@@ -148,11 +161,11 @@ def test_local_xlsx(tmp_path: Path):
     assert (ws["F3"].value, ws["S3"].value) == ("TNG eWallet", "CIMB")  # Source: the bank or wallet
     assert ws.column_dimensions["H"].hidden and ws.column_dimensions["U"].hidden
     assert wb["August 2026"]["X6"].value == "='July 2026'!X6+X3-X4-X5"
-    assert wb["November 2026"]["X5"].value == "='Japan Trip'!R8"
+    assert wb["November 2026"]["X5"].value == "='Japan Trip'!Q4"
     trip = wb["Japan Trip"]
     assert [trip[f"{c}4"].value for c in "BD"] == ["AIRASIA BERHAD", 225.0]
     summary = wb["Year End Summary"]
-    assert summary["B2"].value.endswith("+B4") and summary["B4"].value == "='Japan Trip'!R8"
+    assert summary["B2"].value.endswith("+B4") and summary["B4"].value == "='Japan Trip'!Q4"
 
 
 # ---- Google Sheets sync against a fake gspread --------------------------
@@ -283,7 +296,7 @@ def test_trip_tab_slots_in_without_moving_your_tabs(fake):
     w = writes(sheet)
     assert w["'Japan Trip'!A4:H7"][0][:2] == ["2026-08-17", "AIRASIA BERHAD"]
     assert w["'Japan Trip'!A1"] == [["Japan Trip"]]
-    assert w["'November 2026'!X5"] == [["='Japan Trip'!R8"]]
+    assert w["'November 2026'!X5"] == [["='Japan Trip'!Q4"]]
     assert w["'December 2026'!X6"] == [["='November 2026'!X6+X3-X4-X5"]]
     assert "Chinese New Year" not in " ".join(w)  # never written to
 

@@ -11,16 +11,16 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from .accounts import (
-    CASH_COLS, CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, IMP_COLS, RECEIVED_COLS, SPEND_COLS, SPEND_KEY, SUMMARY_COLS,
-    TO_UPDATE, TRIP_RATE_CELL, TRIP_SUMMARY_COLS, XLSX_LAST_ROW, YEAR_SUMMARY, Tab, month_layout, month_links,
-    to_update_table, trip_layout, year_summary_cells,
+    CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, IMP_COLS, PAID_COLS, PAID_KEY, SPEND_COLS, SPEND_KEY, SUMMARY_COLS,
+    TO_UPDATE, TRIP_SUMMARY_COLS, XLSX_LAST_ROW, YEAR_SUMMARY, Tab, currency_cols, month_layout, month_links,
+    rate_cells, received_cols, to_update_table, trip_layout, year_summary_cells,
 )
 from .config import Config
 
 MONTH_WIDTHS = {"A": 12, "B": 34, "C": 16, "D": 12, "E": 14, "F": 14, "G": 30, "I": 3, "J": 18, "K": 14, "L": 3,
                 "M": 16, "N": 14, "O": 3, "P": 12, "Q": 30, "R": 12, "S": 14, "T": 30, "V": 3, "W": 12, "X": 14}
-TRIP_WIDTHS = {"A": 12, "B": 30, "C": 14, "D": 12, "E": 14, "F": 14, "G": 24, "I": 3, "J": 12, "K": 28, "L": 14,
-               "M": 14, "N": 14, "O": 18, "P": 3, "Q": 24, "R": 12, "S": 3, "T": 12, "U": 26, "V": 14, "W": 18}
+TRIP_WIDTHS = {"A": 12, "B": 30, "C": 14, "D": 12, "E": 14, "F": 14, "G": 24, "I": 3, "J": 12, "K": 22, "L": 12,
+               "M": 20, "O": 3, "P": 26, "Q": 14, "R": 3, "S": 12, "T": 28, "U": 14, "V": 14, "W": 14, "X": 18}
 
 
 def _fill(ws, cells: str, colour: str) -> None:
@@ -117,18 +117,24 @@ def _fill_trip(ws, tab: Tab, config: Config) -> None:
     ws["A1"].font = Font(bold=True, size=14)
     _rows(ws, tab, "spend", SPEND_COLS + SPEND_KEY, "A", "D")
     L, V = TRIP_SUMMARY_COLS
-    for row in range(4, 14):
+    currencies = tab.trip.currencies()
+    for row in range(4, 9 + 4 * len(currencies)):
         ws[f"{V}{row}"].number_format = "#,##0.00"
-    if tab.trip.currency:
-        ws[TRIP_RATE_CELL].number_format = "0.00000"
+    for cell in rate_cells(tab.trip):
+        ws[cell].number_format = "0.000000"
     pairs = [("C", config.categories), ("E", config.importance)]
-    if tab.trip.currency:
-        pairs += [(CASH_COLS[2], config.categories), (CASH_COLS[4], config.importance)]
-        _fill(ws, f"{CASH_COLS[0]}2:{CASH_COLS[-1]}3", "cash")
-        _fill(ws, f"{RECEIVED_COLS[0]}2:{RECEIVED_COLS[-1]}3", "earn")
-    _fill(ws, f"A3:{SPEND_COLS[-1]}3", "spend")
+    for i, _ in enumerate(currencies):
+        c = currency_cols(i)
+        pairs += [(c[2], config.categories), (c[4], config.importance)]
+        _fill(ws, f"{c[0]}2:{c[-1]}3", "cash")
+    if currencies:
+        rc = received_cols(len(currencies))
+        _fill(ws, f"{rc[0]}2:{rc[-1]}3", "summary")
+    _fill(ws, f"A2:{SPEND_COLS[-1]}3", "spend")
+    _fill(ws, f"{PAID_COLS[0]}2:{PAID_COLS[-1]}3", "earn")
     _fill(ws, f"{L}3:{V}3", "summary")
-    _fill(ws, f"{L}8:{V}8", "final")
+    _fill(ws, f"{L}4:{V}4", "final")
+    ws.column_dimensions[PAID_KEY].hidden = True
     _dropdowns(ws, config, tab.first_row, pairs)
     for col, w in TRIP_WIDTHS.items():
         ws.column_dimensions[col].width = w

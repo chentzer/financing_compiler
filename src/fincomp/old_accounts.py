@@ -109,8 +109,12 @@ def _blocks(header: dict[int, object]) -> list[tuple[str, dict[str, int]]]:
         kind = "spend" if n == 0 else "earn"
         names = SPEND_FIELDS if kind == "spend" else EARN_FIELDS
         cols, c = {}, start
-        while c in header and (f := names.get(str(header[c]).strip().lower())) and f not in cols:
-            cols[f] = c
+        # Up to the next "Date" or a blank; columns it doesn't know (2025's
+        # "Claimable") are skipped, not the end of the block.
+        while c in header and str(header[c]).strip() and (c == start or str(header[c]).strip().lower() != "date"):
+            f = names.get(str(header[c]).strip().lower())
+            if f and f not in cols:
+                cols[f] = c
             c += 1
         if {"date", "item", "amount"} <= cols.keys():
             blocks.append((kind, cols))
@@ -231,65 +235,159 @@ def _old_rate(rows: dict[int, dict[int, object]], currency: str) -> float | None
             value = cells.get(c + 1)
             if not isinstance(value, float):
                 continue
-            if currency and label == f"total spent in {currency.lower()}":
+            names = {currency.lower()} | {k for k, v in CURRENCY_NAMES.items() if v == currency.upper()}
+            if currency and label in {f"total spent in {n}" for n in names}:
                 spent = value
             elif label.startswith("total spent in myr (") or label.startswith("total spent in rm ("):
                 in_rm = value
     return round(in_rm / spent, 6) if spent and in_rm else None
 
 
+CURRENCY_NAMES = {"yen": "JPY", "euro": "EUR", "euros": "EUR", "pound": "GBP", "pounds": "GBP", "vtd": "VND",
+                  "dong": "VND", "won": "KRW", "baht": "THB", "rupiah": "IDR", "peso": "PHP", "yuan": "CNY",
+                  "rmb": "CNY", "ntd": "TWD", "nt$": "TWD"}
+RM_NAMES = {"rm", "myr", "ringgit"}
+
+
+def _code(currency: str) -> str:
+    c = currency.strip()
+    return CURRENCY_NAMES.get(c.lower(), c.upper() if len(c) <= 4 else c)
+
+
+def _row1_info(rows: dict[int, dict[int, object]], title: str) -> tuple[date | None, date | None, float | None, bool]:
+    """Start Date / End Date / Convertion Rate written in row 1 (2025 on), and
+    whether row 1 names this trip (it was sometimes copied from another)."""
+    cells = rows.get(1, {})
+    start = end = rate = None
+    for c, v in cells.items():
+        label = str(v).strip().lower()
+        nxt = cells.get(c + 1)
+        if label == "start date":
+            start = _date(nxt)
+        elif label == "end date":
+            end = _date(nxt)
+        elif label.startswith("conver") and isinstance(nxt, float) and nxt > 0:
+            rate = nxt
+    named = str(cells.get(0, "")).strip().lower() == title.strip().lower()
+    return start, end, rate, named
+
+
 def trips_from_workbook(data: bytes) -> list[dict]:
-    """Trip tabs in the layout of the 2023 "Japan Trip" sheet: header in row 3
-    with an RM block (Date, Item, Category, Amount (RM), Importance, Remarks),
-    a block in the trip's currency with Category (spending), and one without
-    (money received). The trip's dates come from its currency spending."""
+    """Trip tabs (header in row 3): an RM spending block (Category, Amount (RM)
+    or (MYR)), a spending block per foreign currency (with Category), and
+    blocks without Category for money received: in RM/MYR it's what friends
+    paid you back, in another currency it's money exchanged or left over.
+    Dates and the rate come from row 1 when it has them (2025 on), else from
+    the rows and the old summary."""
     sheets = read_sheets(data)
     months = month_tabs(sheets)
     years = [parse_month_title(t)[0] for t in months.values()]
+    row1 = {t: _row1_info(rows, t) for t, rows in sheets.items() if t not in months}
+    shared = Counter((s, e) for s, e, _, _ in row1.values() if s and e)
     out = []
     for title, rows in sheets.items():
         if title in months or 3 not in rows:
             continue
         header = rows[3]
         blocks = [(s, _block(header, s)) for s in _starts(header)]
-        rm = next(((s, b) for s, b in blocks if "Category" in b and any(_amount_currency(h) == "RM" for h in b)), None)
+
+        def amount_of(names):
+            return next(((i, cur) for i, h in enumerate(names) if (cur := _amount_currency(h))), (None, None))
+
+        rm = cash = None
+        cash_blocks, paid_blocks, received_blocks = [], [], []
+        for s, names in blocks:
+            i, cur = amount_of(names)
+            if i is None:
+                continue
+            is_rm = cur.strip().lower() in RM_NAMES
+            if "Category" in names:
+                if is_rm and rm is None:
+                    rm = (s, names)
+                elif not is_rm:
+                    cash_blocks.append((s, names, _code(cur)))
+            else:
+                (paid_blocks if is_rm else received_blocks).append((s, names, _code(cur)))
         if not rm:
             continue
-        cur_blocks = [(s, b) for s, b in blocks if any((_amount_currency(h) or "RM") != "RM" for h in b)]
-        cash = next(((s, b) for s, b in cur_blocks if "Category" in b), None)
-        received = next(((s, b) for s, b in cur_blocks if "Category" not in b), None)
-        currency = next((c for _, b in cur_blocks for h in b if (c := _amount_currency(h))), "")
 
-        def take(block, need_date: bool) -> list[dict]:
-            if not block:
-                return []
-            start, names = block
+        def take(start: int, names: list[str], need_date: bool) -> list[dict]:
             found = []
+            lower = [n.lower() for n in names]
+            amount_i = next(i for i, h in enumerate(names) if _amount_currency(h))
+            rm_i = next((i for i, h in enumerate(names) if i != amount_i and (_amount_currency(h) or "").lower() in RM_NAMES
+                         or h.replace(" ", "").lower() == "amount(myr)" and i != amount_i), None)
             for r in sorted(k for k in rows if k > 3):
-                cells = {names[i].lower(): rows[r].get(start + i) for i in range(len(names))}
-                amount = next((v for k, v in cells.items() if k.startswith("amount")), None)
-                when = _date(cells.get("date"))
-                item = str(cells.get("item") or "").strip()
+                get = lambda name: rows[r].get(start + lower.index(name)) if name in lower else None  # noqa: E731
+                amount = rows[r].get(start + amount_i)
+                when = _date(get("date"))
+                item = str(get("item") or "").strip()
                 if not isinstance(amount, float) or not amount or (need_date and when is None) or not (item or when):
                     continue
-                found.append({"date": when.isoformat() if when else "", "item": item, "amount": round(abs(amount), 2),
-                              "category": str(cells.get("category") or "").strip(),
-                              "importance": str(cells.get("importance") or "").strip(),
-                              "remarks": str(cells.get("remarks") or "").strip()})
+                row = {"date": when.isoformat() if when else "", "item": item, "amount": round(abs(amount), 2),
+                       "category": str(get("category") or "").strip(),
+                       "importance": str(get("importance") or "").strip(),
+                       "remarks": str(get("remarks") or "").strip()}
+                if rm_i is not None and isinstance(rows[r].get(start + rm_i), float):
+                    row["in_rm"] = rows[r][start + rm_i]
+                found.append(row)
             return found
 
-        rm_rows, cash_rows, received_rows = take(rm, True), take(cash, False), take(received, False)
-        rate = _old_rate(rows, currency)
+        rm_rows = take(*rm, True)
         seen: Counter = Counter()
         for r in rm_rows:
             r.update(kind="spend", source="", key=_key(f"{title}|spend|{r['date']}|{r['item']}|{r['amount']:.2f}", seen))
-        trip_dates = sorted(date.fromisoformat(r["date"]) for r in (cash_rows or rm_rows) if r["date"])
-        if not trip_dates:
-            continue
+        cash: dict[str, list[dict]] = {}
+        for s, names, code in cash_blocks:
+            cash.setdefault(code, []).extend(take(s, names, False))
+        paid = []
+        for s, names, _ in paid_blocks:
+            paid += take(s, names, False)
+        pseen: Counter = Counter()
+        for r in paid:
+            r["key"] = _key(f"{title}|paid|{r['date']}|{r['item']}|{r['amount']:.2f}", pseen)
+        received = []
+        for s, names, code in received_blocks:
+            received += [dict(r, currency=code) for r in take(s, names, False)]
+
+        start, end, row1_rate, named = row1[title]
+        cash_dates = sorted(date.fromisoformat(r["date"]) for rs in cash.values() for r in rs if r["date"])
+        rm_dates = sorted(date.fromisoformat(r["date"]) for r in rm_rows if r["date"])
+        # Row 1 was sometimes copied from another trip: its dates count when it
+        # names this trip, or when they're its own (no other tab has them, same year).
+        trusted = start and end and (named or (shared[(start, end)] == 1 and (not years or start.year in years)))
+        if not trusted:
+            other_dates = sorted(date.fromisoformat(r["date"]) for r in paid + received if r["date"])
+            if cash_dates:
+                start, end = cash_dates[0], cash_dates[-1]
+            elif rm_dates:
+                last = rm_dates[-1]
+                near = [d for d in rm_dates if (last - d).days <= 14]  # bookings come weeks before
+                start, end = near[0], last
+            elif other_dates:
+                start, end = other_dates[0], other_dates[-1]
+            else:
+                continue
+        if end < start:
+            start, end = end, start
+
+        currencies = []
+        for n, code in enumerate(cash):
+            rate = None
+            if n == 0:
+                rate = row1_rate or _old_rate(rows, code)
+            if rate is None:  # worked out from a block's own RM column
+                pairs = [(r["amount"], r["in_rm"]) for r in cash[code] if r.get("in_rm")]
+                if pairs and sum(a for a, _ in pairs):
+                    rate = round(sum(m for _, m in pairs) / sum(a for a, _ in pairs), 6)
+            currencies.append({"code": code, "rate": rate})
+        for rs in cash.values():
+            for r in rs:
+                r.pop("in_rm", None)
         out.append({
-            "name": title, "currency": currency, "start": trip_dates[0].isoformat(), "end": trip_dates[-1].isoformat(),
-            "year": _year(trip_dates, years[0] if years else trip_dates[0].year), "rate": rate,
-            "rm": rm_rows, "cash": cash_rows, "received": received_rows,
+            "name": title, "currencies": currencies, "start": start.isoformat(), "end": end.isoformat(),
+            "year": _year([start, end], years[0] if years else start.year),
+            "rm": rm_rows, "paid": paid, "cash": cash, "received": received,
         })
     return out
 
@@ -307,25 +405,32 @@ def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict
     formulas = _formulas(data, summary) if summary else []
     out = []
     for title, rows in sheets.items():
-        if title in months or title in skip or title == summary or 2 not in rows:
+        if title in months or title in skip or title == summary:
             continue
-        header = rows[2]
+        hr = next((r for r in (1, 2, 3) if r in rows and any(_amount_currency(v) for v in rows[r].values())), None)
+        if hr is None or (hr == 3 and "Category" in {str(v).strip() for v in rows[3].values()}):
+            continue  # not a table tab (a trip-shaped tab is a trip)
+        header = rows[hr]
         tables, all_dates = [], []
-        for start in _starts(header):
+        starts = _starts(header) or [min(c for c, v in header.items() if str(v).strip())]  # no Date column
+        for start in starts:
             names = _block(header, start)
             amount_i = next((i for i, h in enumerate(names) if _amount_currency(h)), None)
             if amount_i is None or len(names) < 3:
                 continue
-            label = names[1] if amount_i != 1 else "Item"
+            label_i = 1 if names[0].lower() == "date" else 0
+            label = names[label_i] if amount_i != label_i else "Item"
             remarks_i = next((i for i, h in enumerate(names) if h.lower() == "remarks"), None)
             currency = _amount_currency(names[amount_i]) or "RM"
-            heading = rows.get(1, {}).get(start)
+            heading = rows.get(hr - 1, {}).get(start) if hr > 1 else None
             found, seen = [], Counter()
-            for r in sorted(k for k in rows if k > 2):
+            for r in sorted(k for k in rows if k > hr):
                 cells = rows[r]
                 amount = cells.get(start + amount_i)
-                when = _date(cells.get(start))
-                item = str(cells.get(start + 1) or "").strip() if amount_i != 1 else ""
+                has_date = names[0].lower() == "date"
+                when = _date(cells.get(start)) if has_date else None
+                item_i = 1 if has_date else 0
+                item = str(cells.get(start + item_i) or "").strip() if amount_i != item_i else ""
                 remarks = str(cells.get(start + remarks_i) or "").strip() if remarks_i is not None else ""
                 first = cells.get(start)
                 if not isinstance(amount, float) or not amount or (r, start + amount_i) in sums.get(title, set()) \
@@ -335,7 +440,7 @@ def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict
                               "remarks": remarks, "key": _key(f"{title}|{start}|{when}|{item}|{amount:.2f}", seen)})
                 if when:
                     all_dates.append(when)
-            name = f"{heading} ({currency})" if heading else currency
+            name = f"{heading} ({currency})" if heading else title if len(starts) == 1 else currency
             tables.append({"name": name, "currency": currency, "label": label, "rows": found})
         if not any(t["rows"] for t in tables):
             continue

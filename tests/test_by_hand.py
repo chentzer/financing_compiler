@@ -19,13 +19,38 @@ def test_old_tabs_are_found_and_get_columns_inserted_right_to_left():
         "'Japan Trip'!A3:H3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks", "Key"]],
     }
     old = sheetplan.old_tabs(headers)
-    assert old == ["September 2026", "Japan Trip"]
+    assert old == ["September 2026"]  # trip tabs are rebuilt instead (trip_versions)
     # Inserted but cut short before the headers were rewritten: only finished, never inserted again.
     half = {"'May 2026'!A2:H2": [["Date", "Item", "Category", "Amount (RM)", "Importance", "", "Remarks", "Key"]]}
     assert sheetplan.old_tabs(half) == [] and sheetplan.unfinished_tabs(half) == ["May 2026"]
     reqs = sheetplan.insert_columns({"September 2026": 1, "Japan Trip": 2}, old)
     starts = [(r["insertDimension"]["range"]["sheetId"], r["insertDimension"]["range"]["startIndex"]) for r in reqs]
-    assert starts == [(1, 18), (1, 16), (1, 7), (1, 5), (2, 16), (2, 7), (2, 5)]
+    assert starts == [(1, 18), (1, 16), (1, 7), (1, 5)]
+    trips = {
+        "'Japan Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks", "Key"]],
+        "'Bali Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key"]],
+        "'Cebu Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key", "",
+                               "Date", "From", "Amount (RM)", "Remarks", "Key", "", "Summary"]],
+    }
+    assert sheetplan.trip_versions(trips) == {"Japan Trip": "v1", "Bali Trip": "v2"}  # Cebu is current
+
+
+def test_old_trip_tab_rebuilt_with_its_rows():
+    trip = Trip("Japan Trip", date(2026, 11, 1), date(2026, 11, 9), currency="JPY", rate=0.03)
+    config = Config(trips=[trip])
+    v2_rows = [  # A-G RM + key H, J-O yen spending, T-W yen received
+        [46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k1", "", 46331, "Ramen", "Food", 1200, "", "", "", "", "",
+         "", 46320, "Money Exchange", 10000, ""],
+        ["", "", "", "", "", "", "", "", "", 46332, "Train", "Transport", 800, "", "", "", "", "", "", "", "", "", ""],
+    ]
+    clear, data, requests = sheetplan.trip_rebuild(trip, "v2", v2_rows, {}, config, 7)
+    cells = {d["range"]: d["values"] for d in data}
+    assert clear == ["'Japan Trip'!A1:AE1000"]
+    assert cells["'Japan Trip'!A4:H4"] == [[46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k1"]]
+    assert cells["'Japan Trip'!S4:X5"][1][:4] == [46332, "Train", "Transport", 800]
+    assert cells["'Japan Trip'!Z4:AD4"] == [[46320, "Money Exchange", "JPY", 10000, ""]]
+    assert cells["'Japan Trip'!Q4"] == [["=Q5-Q6+Q10"]]
+    assert any("hiddenByUser" in str(r) for r in requests)
 
 
 def test_upgrade_fills_source_and_swaps_automatic_remarks_only():
@@ -88,7 +113,7 @@ def test_move_a_row_to_a_trip():
     done = webapi.finish_rows(2026, ids, {r: [] for r in prep["reads"]})
     data = {d["range"]: d["values"] for d in done["data"]}
     assert data["'Japan Trip'!A4:H4"][0][:2] == ["2026-11-04", "Hotel"] and data["'Japan Trip'!A4:H4"][0][7] == "k9"
-    assert data["'November 2026'!X5"] == [["='Japan Trip'!R8"]]  # the trip comes off November's Final
+    assert data["'November 2026'!X5"] == [["='Japan Trip'!Q4"]]  # the trip comes off November's Final
     assert not any(r.startswith("'To Update'") for r in data)  # cards left alone
     assert done["added"] == 1
 
@@ -99,7 +124,7 @@ def test_add_a_row_by_hand_makes_its_month_tab():
     row = {"kind": "earn", "date": "2026-10-02", "item": "Angpow", "amount": 88, "source": "Cash",
            "remarks": "from grandma", "key": "m-abc123"}
     assert webapi.place_target("", row["date"]) == {"title": "October 2026", "trip": False, "year": 2026,
-                                                     "currency": ""}
+                                                     "currencies": []}
     prep = webapi.prepare_rows(2026, titles, [row], "October 2026")
     assert [(t["title"], t["index"]) for t in prep["add"]] == [("October 2026", 2)]
     ids = {t: i for i, t in enumerate(titles + ["October 2026"])}
@@ -113,9 +138,11 @@ def test_trip_cash_in_its_currency_and_rate_refresh():
     webapi.use_settings(settings_with(Trip("Japan Trip", date(2026, 11, 1), date(2026, 11, 9), currency="Yen",
                                            rate=0.031)))
     (w,) = webapi.cash_row([["x"], ["y"]], "Japan Trip", {"date": "2026-11-03", "item": "Ramen", "amount": 1200,
-                                                          "category": "Food"})
-    assert w == {"range": "'Japan Trip'!J6:O6", "values": [["2026-11-03", "Ramen", "Food", 1200, "", ""]]}
+                                                          "category": "Food"}, "yen")
+    assert w == {"range": "'Japan Trip'!S6:X6", "values": [["2026-11-03", "Ramen", "Food", 1200, "", ""]]}
+    (p,) = webapi.paid_row([], "Japan Trip", {"date": "2026-11-10", "item": "Bob", "amount": 45, "key": "m-1"})
+    assert p == {"range": "'Japan Trip'!J4:N4", "values": [["2026-11-10", "Bob", 45.0, "", "m-1"]]}
     out = webapi.trip_refresh({"Japan Trip": 4, "Other": 5})
     cells = {d["range"]: d["values"][0][0] for d in out["data"]}
-    assert cells["'Japan Trip'!R6"] == 0.031 and cells["'Japan Trip'!W3"] == "Remarks"
+    assert cells["'Japan Trip'!Q9"] == 0.031 and cells["'Japan Trip'!X3"] == "Remarks"
     assert all(r[next(iter(r))].get("range", {}).get("sheetId", 4) == 4 for r in out["requests"])

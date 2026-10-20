@@ -96,24 +96,52 @@ def workbook() -> bytes:
     return buf.getvalue()
 
 
-def test_trip_tab_imported_with_its_three_blocks():
+def test_trip_tab_imported_with_its_blocks():
     (trip,) = trips_from_workbook(workbook())
-    assert (trip["name"], trip["currency"], trip["start"], trip["end"], trip["year"]) == (
-        "Japan Trip", "Yen", "2023-11-09", "2023-11-12", 2023)
-    assert trip["rate"] == 0.032  # the old sheet's own rate
+    assert (trip["name"], trip["start"], trip["end"], trip["year"]) == ("Japan Trip", "2023-11-09", "2023-11-12", 2023)
+    assert trip["currencies"] == [{"code": "JPY", "rate": 0.032}]  # "Yen", and the old sheet's own rate
     assert [(r["item"], r["amount"]) for r in trip["rm"]] == [("Flight", 1200.0), ("Money Exchange", 320.0)]
-    assert [r["item"] for r in trip["cash"]] == ["Ramen", "Train"]
-    assert [(r["date"], r["item"], r["amount"]) for r in trip["received"]] == [
-        ("2023-10-28", "Money Exchange", 10000.0), ("", "Bob paid back", 500.0)]
+    assert [r["item"] for r in trip["cash"]["JPY"]] == ["Ramen", "Train"]
+    assert [(r["date"], r["item"], r["currency"], r["amount"]) for r in trip["received"]] == [
+        ("2023-10-28", "Money Exchange", "JPY", 10000.0), ("", "Bob paid back", "JPY", 500.0)]
+
+
+def test_2025_trip_layout_paid_back_and_row1():
+    wb = openpyxl.Workbook()
+    t = wb.active
+    t.title = "Bali Trip"
+    t["A1"], t["B1"], t["C1"], t["D1"], t["E1"], t["H1"], t["I1"] = (
+        "Bali Trip", "Start Date", datetime(2025, 6, 20), "End Date", datetime(2025, 6, 23), "Convertion Rate", 0.000262)
+    heads = {"A": ["Date", "Item", "Category", "Amount (MYR)", "Importance", "Remarks"],
+             "H": ["Date", "Item", "Category", "Amount (IDR)", "Importance", "Remarks"],
+             "O": ["Date", "Item", "Amount (MYR)", "Remarks"]}
+    for start, names in heads.items():
+        for i, h in enumerate(names):
+            t.cell(3, ord(start) - 64 + i, h)
+    t["A4"], t["B4"], t["C4"], t["D4"] = datetime(2025, 5, 30), "Hotel", "Misc", 340.75
+    t["H4"], t["I4"], t["J4"], t["K4"] = datetime(2025, 6, 21), "Car Rental", "Transport", 500000
+    t["O4"], t["P4"], t["Q4"] = datetime(2025, 6, 1), "Bob Lim", 15.0
+    buf = io.BytesIO()
+    wb.save(buf)
+    (trip,) = trips_from_workbook(buf.getvalue())
+    assert (trip["start"], trip["end"]) == ("2025-06-20", "2025-06-23")
+    assert trip["currencies"] == [{"code": "IDR", "rate": 0.000262}]
+    assert [(r["item"], r["amount"]) for r in trip["paid"]] == [("Bob Lim", 15.0)]  # paid back to you, in MYR
+    assert trip["received"] == [] and [r["item"] for r in trip["cash"]["IDR"]] == ["Car Rental"]
 
 
 def test_trip_extras_not_twice():
     (trip,) = trips_from_workbook(workbook())
-    first = webapi.trip_extras("Japan Trip", [], [], trip["cash"], trip["received"])
-    assert [d["range"] for d in first] == ["'Japan Trip'!J4:O5", "'Japan Trip'!T4:W5"]
-    now_cash = [[45239, "Ramen", "Food", 1200, "", ""], [45242, "Train", "Food", 800, "", ""]]
-    now_received = [[45227, "Money Exchange", 10000, ""], ["", "Bob paid back", 500, ""]]
-    assert webapi.trip_extras("Japan Trip", now_cash, now_received, trip["cash"], trip["received"]) == []
+    tabs = S.tabs_from_config(Config(trips=[__import__("fincomp.config", fromlist=["Trip"]).Trip(
+        "Japan Trip", datetime(2023, 11, 9).date(), datetime(2023, 11, 12).date(), currency="JPY", rate=0.032)]))
+    webapi.use_settings(tabs)
+    specs = webapi.trip_extra_ranges("Japan Trip")
+    assert [x["range"] for x in specs] == ["'Japan Trip'!J4:N", "'Japan Trip'!S4:X", "'Japan Trip'!Z4:AD"]
+    first = webapi.trip_extras("Japan Trip", [[], [], []], trip["paid"], trip["cash"], trip["received"])
+    assert [d["range"] for d in first] == ["'Japan Trip'!S4:X5", "'Japan Trip'!Z4:AD5"]
+    now = [[], [[45239, "Ramen", "Food", 1200, "", ""], [45242, "Train", "Food", 800, "", ""]],
+           [[45227, "Money Exchange", "JPY", 10000, ""], ["", "Bob paid back", "JPY", 500, ""]]]
+    assert webapi.trip_extras("Japan Trip", now, trip["paid"], trip["cash"], trip["received"]) == []
 
 
 def test_custom_tab_imported_counted_as_earnings():

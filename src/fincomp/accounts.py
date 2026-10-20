@@ -13,11 +13,14 @@ Month tab ("January 2026"), a blank column between sections:
 Source is the bank or wallet; Remarks starts as the statement's own text
 and is yours to overwrite.
 
-Trip tab ("Japan Trip"), data from row 4:
+Trip tab ("Japan Trip"), data from row 4, like the 2025 trip sheets:
   A-G  RM spending (bookings, card charges abroad)     H hidden key
-  J-O  spending in the trip currency
-  Q-R  summary, trip total in R8
-  T-W  trip currency received: money exchange, gifts, repayments
+  J-M  paid back to you (RM), e.g. friends' share       N hidden key
+  P-Q  summary; trip total in Q4 = RM spent + each currency x its rate
+       - paid back
+  S-X  spending in the first currency, then one block of 6 per currency
+       (a blank column between), then money received in other currencies
+       (Date, Item, Currency, Amount, Remarks)
 
 The template used pivot tables for the summaries. They don't survive a trip
 to Google Sheets and need refreshing, so they are SUMIF formulas instead.
@@ -48,12 +51,14 @@ CAT_COLS, IMP_COLS = "JK", "MN"
 EARN_COLS, EARN_KEY = "PQRST", "U"
 SUMMARY_COLS = "WX"
 EARNINGS_CELL, SPENDINGS_CELL, TRIPS_CELL, FINAL_CELL = "X3", "X4", "X5", "X6"
-# Trip tab columns.
-CASH_COLS = "JKLMNO"
-TRIP_SUMMARY_COLS = "QR"
-RECEIVED_COLS = "TUVW"
-TRIP_TOTAL_CELL = "R8"
-TRIP_RATE_CELL = "R6"
+# Trip tab columns (the 2025 trip sheets' way: what friends paid you back
+# comes off the trip). Currency blocks start at S, one per currency.
+PAID_COLS, PAID_KEY = "JKLM", "N"
+PAID_HEADERS = ["Date", "From", "Amount (RM)", "Remarks"]
+TRIP_SUMMARY_COLS = "PQ"
+TRIP_TOTAL_CELL = "Q4"
+CURRENCY_START = 18  # S
+RECEIVED_HEADERS = ["Date", "Item", "Currency", "Amount", "Remarks"]
 # Light header fills per section.
 COLOURS = {
     "spend": {"red": 0.99, "green": 0.89, "blue": 0.88},
@@ -403,61 +408,96 @@ def month_layout(config: Config, open_ended: bool) -> dict[str, object]:
     return cells
 
 
+def col_letter(i: int) -> str:
+    """0 -> A, 25 -> Z, 26 -> AA."""
+    s = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def col_number(letters: str) -> int:
+    n = 0
+    for ch in letters:
+        n = n * 26 + ord(ch) - 64
+    return n - 1
+
+
+def currency_cols(i: int) -> list[str]:
+    """Date, Item, Category, Amount, Importance, Remarks of the trip's i-th currency block."""
+    start = CURRENCY_START + i * (len(CASH_HEADERS) + 1)
+    return [col_letter(start + k) for k in range(len(CASH_HEADERS))]
+
+
+def received_cols(n_currencies: int) -> list[str]:
+    """Date, Item, Currency, Amount, Remarks of money received in other currencies."""
+    start = CURRENCY_START + n_currencies * (len(CASH_HEADERS) + 1)
+    return [col_letter(start + k) for k in range(len(RECEIVED_HEADERS))]
+
+
+def trip_width(trip: Trip) -> int:
+    n = len(trip.currencies())
+    return CURRENCY_START + n * (len(CASH_HEADERS) + 1) + (len(RECEIVED_HEADERS) + 1 if n else 0)
+
+
 def trip_layout(trip: Trip, config: Config, open_ended: bool) -> dict[str, object]:
+    """Headings and summary of a trip tab, laid out like the 2025 trip sheets:
+    RM spending, what friends paid you back, then a spending block per
+    currency. The trip total (Q4) is what you really paid:
+    RM spent + each currency's spending x its rate - paid back."""
     r = TRIP_FIRST_ROW
     cells: dict[str, object] = {"A1": trip.name}
     if trip.link:
         cells["C1"] = f'=HYPERLINK("{trip.link}","Trip Link")'
+    cells["A2"] = "Spending (RM)"
     for col, h in zip(SPEND_COLS, SPEND_HEADERS):
         cells[f"{col}3"] = h
     cells[f"{SPEND_KEY}3"] = "Key"
+    cells[f"{PAID_COLS[0]}2"] = "Paid back to you (RM)"
+    for col, h in zip(PAID_COLS, PAID_HEADERS):
+        cells[f"{col}3"] = h
+    cells[f"{PAID_KEY}3"] = "Key"
 
     L, V = TRIP_SUMMARY_COLS
     rm = _rng("D", r, open_ended)
     items = _rng("B", r, open_ended)
     cells[f"{L}3"] = "Summary"
-    cells[f"{V}3"] = "Amount"
-    cells[f"{L}4"] = "Spent in RM"
-    cells[f"{V}4"] = f'=SUM({rm})-SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
+    cells[f"{V}3"] = "RM"
+    cells[f"{L}4"] = "Trip Total (RM)"
+    cells[f"{L}5"] = "Spent in RM"
+    cells[f"{V}5"] = f'=SUM({rm})-SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
+    cells[f"{L}6"] = "Paid back to you"
+    cells[f"{V}6"] = f"=SUM({_rng(PAID_COLS[2], r, open_ended)})"
 
-    cur = trip.currency
-    if not cur:
-        cells[f"{L}8"] = "Trip Total (RM)"
-        cells[TRIP_TOTAL_CELL] = f"={V}4"
-        return cells
-
-    for col, h in zip(CASH_COLS, CASH_HEADERS):
-        cells[f"{col}3"] = f"Amount ({cur})" if h == "Amount" else h
-    for col, h in zip(RECEIVED_COLS, ["Date", "Item", f"Amount ({cur})", "Remarks"]):
-        cells[f"{col}3"] = h
-    cells[f"{CASH_COLS[0]}2"] = f"Spending in {cur}"
-    cells[f"{RECEIVED_COLS[0]}2"] = f"{cur} received: money exchange, gifts, repayments"
-
-    received = _rng(RECEIVED_COLS[2], r, open_ended)
-    received_items = _rng(RECEIVED_COLS[1], r, open_ended)
-    cells[f"{L}5"] = f"Spent in {cur}"
-    cells[f"{V}5"] = f"=SUM({_rng(CASH_COLS[3], r, open_ended)})"
-    cells[f"{L}6"] = f"RM per 1 {cur}"
-    if trip.rate:
-        cells[TRIP_RATE_CELL] = trip.rate
-    else:
-        # Worked out from what the exchange cost and what it gave you.
-        cells[TRIP_RATE_CELL] = (
-            f'=IFERROR(SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
-            f'/SUMIF({received_items},"{MONEY_EXCHANGE}",{received}),0)'
-        )
-    cells[f"{L}7"] = f"{cur} spending in RM"
-    cells[f"{V}7"] = f"={V}5*{V}6"
-    cells[f"{L}8"] = "Trip Total (RM)"
-    cells[TRIP_TOTAL_CELL] = f"={V}4+{V}7"
-    cells[f"{L}10"] = f"{cur} received"
-    cells[f"{V}10"] = f"=SUM({received})"
-    cells[f"{L}11"] = f"{cur} left (expected)"
-    cells[f"{V}11"] = f"={V}10-{V}5"
-    cells[f"{L}12"] = f"{cur} left (counted)"
-    cells[f"{L}13"] = "Unaccounted"
-    cells[f"{V}13"] = f'=IF({V}12="","",{V}12-{V}11)'
+    in_rm = []
+    for i, (cur, rate) in enumerate(trip.currencies()):
+        c = currency_cols(i)
+        cells[f"{c[0]}2"] = f"Spending in {cur}"
+        for col, h in zip(c, CASH_HEADERS):
+            cells[f"{col}3"] = f"Amount ({cur})" if h == "Amount" else h
+        row = 8 + 4 * i
+        cells[f"{L}{row}"] = f"Spent in {cur}"
+        cells[f"{V}{row}"] = f"=SUM({_rng(c[3], r, open_ended)})"
+        cells[f"{L}{row + 1}"] = f"RM per 1 {cur}"
+        cells[f"{V}{row + 1}"] = rate if rate else ""
+        cells[f"{L}{row + 2}"] = f"{cur} spending in RM"
+        cells[f"{V}{row + 2}"] = f"={V}{row}*{V}{row + 1}"
+        in_rm.append(f"{V}{row + 2}")
+    if trip.currencies():
+        rc = received_cols(len(trip.currencies()))
+        cells[f"{rc[0]}2"] = "Received in other currencies (money exchange, leftovers)"
+        for col, h in zip(rc, RECEIVED_HEADERS):
+            cells[f"{col}3"] = h
+    cells[TRIP_TOTAL_CELL] = f"={V}5-{V}6" + "".join(f"+{x}" for x in in_rm)
     return cells
+
+
+def rate_cells(trip: Trip) -> list[str]:
+    """Where each currency's rate sits in the summary (to read or write it)."""
+    V = TRIP_SUMMARY_COLS[1]
+    return [f"{V}{9 + 4 * i}" for i in range(len(trip.currencies()))]
 
 
 def month_links(month_titles: list[str], trips: list[Trip], trip_titles: set[str]) -> dict[str, dict[str, str]]:

@@ -125,16 +125,29 @@ def _upgrade_columns(sh, year: int, tabs: list[Tab], config: Config) -> None:
     if not headers:
         return
     got = sh.values_batch_get(headers).get("valueRanges", [])
-    old = sheetplan.old_tabs({rng: vr.get("values", []) for rng, vr in zip(headers, got)})
+    head = {rng: vr.get("values", []) for rng, vr in zip(headers, got)}
+    old = sheetplan.old_tabs(head)
+    ids = {ws.title: ws.id for ws in sh.worksheets()}
+    rows = [r for tab in tabs for r in tab.rows]
+    for title, version in sheetplan.trip_versions(head).items():
+        trip = next((t for t in config.trips if t.name == title), None)
+        if trip is None:
+            continue
+        rng = f"{sheetplan.quote(title)}!A4:AZ"
+        got = sh.values_batch_get([rng], params={"valueRenderOption": "FORMULA"}).get("valueRanges", [{}])
+        clear, data, requests = sheetplan.trip_rebuild(trip, version, got[0].get("values", []),
+                                                       {r.key: r for r in rows}, config, ids[title])
+        for c in clear:
+            sh.values_clear(c)
+        sh.values_batch_update({"valueInputOption": "USER_ENTERED", "data": data})
+        sh.batch_update({"requests": requests})
     if not old:
         return
-    ids = {ws.title: ws.id for ws in sh.worksheets()}
     sh.batch_update({"requests": sheetplan.insert_columns(ids, old)})
     months, trips = sheetplan.month_and_trip_tabs(titles, year, config)
     reads = sheetplan.data_ranges(months, trips)
     got = sh.values_batch_get(reads, params={"valueRenderOption": "FORMULA"}).get("valueRanges", [])
     values = {rng: vr.get("values", []) for rng, vr in zip(reads, got)}
-    rows = [r for tab in tabs for r in tab.rows]
     clear, data, requests = sheetplan.upgrade_finish(ids, old, values, rows, config)
     for rng in clear:
         sh.values_clear(rng)

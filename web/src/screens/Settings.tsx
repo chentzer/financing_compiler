@@ -101,7 +101,7 @@ function SettingsTab({ tab }: { tab: string }) {
           intro="Each trip gets its own tab. Its total comes off the Final of the month it ends."
           items={s.trips.map((t) => ({
             title: t.name,
-            sub: `${shortDate(t.start)} – ${shortDate(t.end)}${t.currency ? ` · ${t.currency}` : ''}`,
+            sub: `${shortDate(t.start)} – ${shortDate(t.end)}${t.currencies.length ? ` · ${t.currencies.map((c) => c.code).join(', ')}` : ''}`,
           }))}
           onEdit={(index) => setEditing({ index })}
           addLabel="Add trip"
@@ -388,10 +388,12 @@ function PersonSheet({ person, onClose, onSave }: { person?: Person; onClose(): 
 }
 
 function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; onSave: SaveFn<Trip> }) {
-  const [t, setT] = useState<Trip>(trip ?? { name: '', start: '', end: '', match: [] })
+  const [t, setT] = useState<Trip>(trip ?? { name: '', start: '', end: '', currencies: [], match: [] })
   const [match, setMatch] = useState((trip?.match ?? []).join(', '))
-  const [rateBusy, setRateBusy] = useState(false)
+  const [rateBusy, setRateBusy] = useState<number>()
   const [rateNote, setRateNote] = useState<string>()
+  const setCur = (i: number, c: Partial<Trip['currencies'][number]>) =>
+    setT({ ...t, currencies: t.currencies.map((x, j) => (j === i ? { ...x, ...c } : x)) })
   const valid = t.name.trim() && t.start && t.end && t.start <= t.end
   return (
     <Sheet title={trip ? 'Edit trip' : 'New trip'} onClose={onClose}>
@@ -403,6 +405,7 @@ function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; on
             clean({
               ...t,
               name: t.name.trim(),
+              currencies: t.currencies.map((c) => ({ ...c, code: c.code.trim().toUpperCase() })).filter((c) => c.code),
               match: match.split(',').map((m) => m.trim()).filter(Boolean),
             }),
           )
@@ -419,55 +422,50 @@ function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; on
             <input type="date" value={t.end} onChange={(e) => setT({ ...t, end: e.target.value })} />
           </Field>
         </div>
-        <div className="two">
-          <Field label="Currency" hint="Blank for local trips">
-            <input
-              value={t.currency ?? ''}
-              onChange={(e) => setT({ ...t, currency: e.target.value })}
-              placeholder="e.g. JPY"
-              list="currencies"
-            />
-            <datalist id="currencies">
-              {CURRENCIES.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
-          <Field label="RM per 1 unit" hint="Blank = from Money Exchange rows">
-            <input
-              type="number"
-              inputMode="decimal"
-              step="any"
-              value={t.rate ?? ''}
-              onChange={(e) => setT({ ...t, rate: e.target.value ? Number(e.target.value) : undefined })}
-            />
-          </Field>
-        </div>
-        {t.currency?.trim() && (
-          <div className="btn-row">
-            <button
-              type="button"
-              className="btn small"
-              disabled={rateBusy}
+        <h3>Currencies</h3>
+        <p className="muted small">Each gets its own spending block on the trip tab. None for a trip in RM only.</p>
+        {t.currencies.map((c, i) => (
+          <div key={i} className="table-row">
+            <Field label="Currency">
+              <input value={c.code} onChange={(e) => setCur(i, { code: e.target.value })} placeholder="e.g. JPY" list="currencies" />
+            </Field>
+            <Field label="RM per 1">
+              <input type="number" inputMode="decimal" step="any" value={c.rate ?? ''}
+                onChange={(e) => setCur(i, { rate: e.target.value ? Number(e.target.value) : undefined })} />
+            </Field>
+            <button type="button" className="btn small" disabled={!c.code.trim() || rateBusy === i}
               onClick={async () => {
-                setRateBusy(true)
+                setRateBusy(i)
                 setRateNote(undefined)
                 try {
-                  const rate = await rateToRm(t.currency!)
-                  setT({ ...t, rate: Number(rate.toPrecision(6)) })
-                  setRateNote(`Today's rate: RM ${rate.toPrecision(6)} per 1 ${currencyCode(t.currency!)}`)
+                  const rate = await rateToRm(c.code)
+                  setCur(i, { rate: Number(rate.toPrecision(6)) })
+                  setRateNote(`Today's rate: RM ${rate.toPrecision(6)} per 1 ${currencyCode(c.code)}`)
                 } catch (e) {
                   setRateNote(errorText(e))
                 } finally {
-                  setRateBusy(false)
+                  setRateBusy(undefined)
                 }
-              }}
-            >
-              {rateBusy ? 'Looking up…' : "Get today's rate"}
+              }}>
+              {rateBusy === i ? 'Looking up…' : "Today's rate"}
             </button>
-            {rateNote && <span className="muted small">{rateNote}</span>}
+            <button type="button" className="icon-btn" aria-label={`Remove ${c.code || 'currency'}`}
+              onClick={() => setT({ ...t, currencies: t.currencies.filter((_, j) => j !== i) })}>
+              ✕
+            </button>
           </div>
-        )}
+        ))}
+        <datalist id="currencies">
+          {CURRENCIES.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={() => setT({ ...t, currencies: [...t.currencies, { code: '' }] })}>
+            + Add currency
+          </button>
+          {rateNote && <span className="muted small">{rateNote}</span>}
+        </div>
         <Field label="Earlier bookings containing" hint="Comma-separated, e.g. AIRASIA, AGODA">
           <input value={match} onChange={(e) => setMatch(e.target.value)} />
         </Field>

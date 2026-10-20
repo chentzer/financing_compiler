@@ -88,16 +88,16 @@ export interface NewRow {
   kind: Kind
   date: string
   item: string
-  /** Positive; RM, or the trip's currency when `inTripCurrency`. */
+  /** Positive; RM, or `currency` (one of the trip's). */
   amount: number
   category?: Category | ''
   importance?: Importance | ''
   source?: string
   remarks?: string
-  /** Put it on this trip (spending only); otherwise the month of its date. */
+  /** Put it on this trip: spending goes in its RM or currency block, money in is "paid back to you". */
   trip?: string
-  /** The amount is in the trip's own currency (its "Spending in <currency>" block). */
-  inTripCurrency?: boolean
+  /** One of the trip's currencies; blank = RM. */
+  currency?: string
 }
 
 export interface Month {
@@ -160,14 +160,19 @@ export interface Person {
   shownAs: string
 }
 
+export interface TripCurrency {
+  /** e.g. "JPY". */
+  code: string
+  /** RM per 1 unit. */
+  rate?: number
+}
+
 export interface Trip {
   name: string
   start: string
   end: string
-  /** e.g. "Yen"; blank for local trips. */
-  currency?: string
-  /** RM per 1 unit of currency. */
-  rate?: number
+  /** Foreign currencies, each with its own spending block and RM rate; [] for a trip in RM only. */
+  currencies: TripCurrency[]
   /** Statement pieces that send earlier bookings to this trip. */
   match: string[]
   link?: string

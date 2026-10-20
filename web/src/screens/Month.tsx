@@ -285,9 +285,9 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
     setBusy(true)
     setError(undefined)
     try {
-      await backend.addRow({ ...f, amount: Number(amount), trip: isSpend ? f.trip || undefined : undefined,
-        inTripCurrency: isSpend && !!trip?.currency && f.inTripCurrency })
-      toast(f.trip && isSpend ? `Added to ${f.trip}` : 'Added')
+      await backend.addRow({ ...f, amount: Number(amount), trip: f.trip || undefined,
+        currency: isSpend && trip ? f.currency || undefined : undefined })
+      toast(f.trip ? (isSpend ? `Added to ${f.trip}` : `Added to ${f.trip} as paid back to you`) : 'Added')
       changed()
       onClose()
     } catch (e) {
@@ -316,7 +316,7 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
           <Field label="Date">
             <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
           </Field>
-          <Field label={`Amount (${isSpend && trip?.currency && f.inTripCurrency ? trip.currency : 'RM'})`}>
+          <Field label={`Amount (${(isSpend && f.currency) || 'RM'})`}>
             <input type="number" inputMode="decimal" step="0.01" min="0" value={amount}
               onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
           </Field>
@@ -324,9 +324,9 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
         <Field label="Item">
           <input value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} placeholder="e.g. Dinner" autoFocus />
         </Field>
-        {isSpend && (trips.data?.length ?? 0) > 0 && (
-          <Field label="Trip">
-            <select value={f.trip} onChange={(e) => setF({ ...f, trip: e.target.value, inTripCurrency: false })}>
+        {(trips.data?.length ?? 0) > 0 && (
+          <Field label="Trip" hint={isSpend ? undefined : 'Money in on a trip is "paid back to you"'}>
+            <select value={f.trip} onChange={(e) => setF({ ...f, trip: e.target.value, currency: '' })}>
               <option value="">Not on a trip</option>
               {trips.data!.map((t) => (
                 <option key={t.name}>{t.name}</option>
@@ -334,12 +334,15 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
             </select>
           </Field>
         )}
-        {isSpend && trip?.currency && (
-          <label className="toggle">
-            <input type="checkbox" checked={!!f.inTripCurrency} onChange={(e) => setF({ ...f, inTripCurrency: e.target.checked })} />
-            <span className="switch" aria-hidden />
-            <span>Amount is in {trip.currency} (e.g. cash spent there)</span>
-          </label>
+        {isSpend && trip && trip.currencies.length > 0 && (
+          <Field label="Paid in">
+            <Chips<string>
+              label="Currency"
+              options={['RM', ...trip.currencies.map((c) => c.code)]}
+              value={f.currency || 'RM'}
+              onChange={(c) => setF({ ...f, currency: c && c !== 'RM' ? c : '' })}
+            />
+          </Field>
         )}
         {isSpend && (
           <>
@@ -351,7 +354,7 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
             </Field>
           </>
         )}
-        {!(isSpend && trip?.currency && f.inTripCurrency) && (
+        {!(isSpend && f.currency) && !(f.trip && !isSpend) && (
           <SourceField value={f.source ?? ''} onChange={(source) => setF({ ...f, source })} />
         )}
         <Field label="Remarks" hint="Optional">

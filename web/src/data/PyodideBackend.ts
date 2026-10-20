@@ -68,7 +68,7 @@ interface Prep { add: { title: string; index: number; rows: number; cols: number
 interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already: number; toUpdate: number }
 interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; tab: string; key: string }
 interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item: string; category: string; amount: number; importance: string; source: string; remarks: string; key: string }
-interface Target { title: string; trip: boolean; year: number; currency: string }
+interface Target { title: string; trip: boolean; year: number; currencies: string[] }
 type Plan = { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }
 interface Book { year: number; id: string }
 interface Where { book: Book; tab: string; trip: boolean }
@@ -156,9 +156,9 @@ export class PyodideBackend implements Backend {
       const headers = await py<string[]>('upgrade_headers', [b.year, titles])
       if (!headers.length) continue
       const got = await this.g.read(b.id, headers, 'UNFORMATTED_VALUE')
-      const plan = await py<{ requests: object[]; finish: string[] }>(
+      const plan = await py<{ requests: object[]; finish: string[]; trips: Record<string, string> }>(
         'upgrade_columns', [ids, Object.fromEntries(headers.map((r, i) => [r, got[i]]))])
-      if (!plan.finish.length) continue
+      if (!plan.finish.length && !Object.keys(plan.trips).length) continue
       if (plan.requests.length) await this.g.batch(b.id, plan.requests)
       if (!compiled) {
         // Each row's bank and statement text, from the Ledger.
@@ -168,8 +168,18 @@ export class PyodideBackend implements Backend {
       }
       const reads = await py<string[]>('book_ranges', [b.year, titles])
       const vals = await this.g.read(b.id, reads, 'FORMULA')
-      const fin = await py<Plan>('upgrade_finish', [ids, plan.finish, Object.fromEntries(reads.map((r, i) => [r, vals[i]]))])
-      await this.run(b.id, fin)
+      if (plan.finish.length) {
+        const fin = await py<Plan>('upgrade_finish', [ids, plan.finish, Object.fromEntries(reads.map((r, i) => [r, vals[i]]))])
+        await this.run(b.id, fin)
+      }
+      if (Object.keys(plan.trips).length) {
+        // Trip tabs in an older layout are rewritten in the current one (rows kept).
+        const tripReads = await py<string[]>('upgrade_trip_ranges', [plan.trips])
+        const tv = await this.g.read(b.id, tripReads, 'FORMULA')
+        const fin = await py<Plan>('upgrade_trips', [b.year, titles, ids, plan.trips,
+          Object.fromEntries(tripReads.map((r, i) => [r, tv[i]]))])
+        await this.run(b.id, fin)
+      }
     }
   }
 
@@ -520,12 +530,15 @@ export class PyodideBackend implements Backend {
   private async importWorkbook(file: UploadFile): Promise<UploadResult> {
     try {
       await this.useSettings()
-      type OldTrip = { name: string; currency: string; start: string; end: string; year: number; rate: number | null;
-        rm: object[]; cash: object[]; received: object[] }
+      type OldTrip = { name: string; currencies: { code: string; rate: number | null }[]; start: string; end: string;
+        year: number; rm: object[]; paid: object[]; cash: Record<string, object[]>; received: object[] }
       type OldSheet = { name: string; year: number; counts: CustomSheet['counts'];
         tables: (CustomSheet['tables'][number] & { rows: object[] })[] }
-      const out = await py<{ months: Record<string, object[]>; years: Record<string, number>; trips: OldTrip[]; sheets: OldSheet[] }>(
-        'old_accounts', [null], [{ name: file.name, data: file.data }])
+      // Months your statements already cover aren't copied (they'd be counted twice).
+      const { ledger } = await this.readSettings()
+      const months = ledger.slice(1).map((r) => s(r[0]).slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort()
+      const out = await py<{ months: Record<string, object[]>; years: Record<string, number>; trips: OldTrip[];
+        sheets: OldSheet[]; skipped: string[] }>('old_accounts', [null, months[0] ?? ''], [{ name: file.name, data: file.data }])
       const titles = Object.keys(out.months)
       if (!titles.length && !out.trips.length && !out.sheets.length) {
         return { file: file.name, status: 'failed', message: 'No month tabs (like "September 2022") with Date / Item / Amount columns found.' }
@@ -542,16 +555,17 @@ export class PyodideBackend implements Backend {
       for (const trip of out.trips) {
         const st = await this.getSettings()
         if (!st.trips.some((t) => t.name === trip.name)) {
-          st.trips.push({ name: trip.name, start: trip.start, end: trip.end, currency: trip.currency || undefined,
-            rate: trip.rate ?? undefined, match: [] })
+          st.trips.push({ name: trip.name, start: trip.start, end: trip.end,
+            currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate ?? undefined })), match: [] })
           await this.saveSettings(st)
         }
         added += await this.placeRowsCounted(trip.year, trip.rm, trip.name)
-        total += trip.rm.length + trip.cash.length + trip.received.length
+        total += trip.rm.length + trip.paid.length + trip.received.length +
+          Object.values(trip.cash).reduce((n, rows) => n + rows.length, 0)
         const book = (await this.book(trip.year))!
-        const ranges = await py<string[]>('trip_extra_ranges', [trip.name])
-        const [cash, received] = await this.g.read(book.id, ranges, 'UNFORMATTED_VALUE')
-        const data = await py<Plan['data']>('trip_extras', [trip.name, cash, received, trip.cash, trip.received])
+        const specs = await py<{ range: string }[]>('trip_extra_ranges', [trip.name])
+        const now = await this.g.read(book.id, specs.map((x) => x.range), 'UNFORMATTED_VALUE')
+        const data = await py<Plan['data']>('trip_extras', [trip.name, now, trip.paid, trip.cash, trip.received])
         if (data.length) await this.g.write(book.id, data, 'USER_ENTERED')
         added += data.reduce((n, d) => n + d.values.length, 0)
         parts.push(trip.name)
@@ -573,9 +587,10 @@ export class PyodideBackend implements Backend {
         }
         parts.push(`${sh.name} (Sheets)`)
       }
+      const left = out.skipped.length ? ` Left out (your statements cover them): ${out.skipped.join(', ')}.` : ''
       return {
         file: file.name, status: 'ok', source: 'workbook', rowsAdded: added,
-        message: `${added} of ${total} rows copied into ${parts.join(', ')}${added < total ? ' (the rest were already there)' : ''}.`,
+        message: `${added} of ${total} rows copied into ${parts.join(', ')}${added < total ? ' (the rest were already there)' : ''}.${left}`,
       }
     } catch (e) {
       return { file: file.name, status: 'failed', message: e instanceof Error ? e.message : String(e) }
@@ -695,16 +710,19 @@ export class PyodideBackend implements Backend {
 
   async addRow(row: NewRow): Promise<void> {
     await this.useSettings()
-    const trip = row.kind === 'spend' ? (row.trip ?? '') : '' // trips hold spending only
-    const target = await py<Target>('place_target', [trip, row.date])
+    const target = await py<Target>('place_target', [row.trip ?? '', row.date])
     const fields = {
       kind: row.kind, date: row.date, item: row.item.trim(), amount: row.amount, category: row.category ?? '',
       importance: row.importance ?? '', source: row.source?.trim() ?? '', remarks: row.remarks?.trim() ?? '', key: newKey(),
     }
-    if (target.trip && row.inTripCurrency && target.currency) {
+    if (target.trip && (row.kind === 'earn' || row.currency)) {
+      // Money in on a trip is "paid back to you"; spending in a foreign currency goes in its block.
       const book = await this.placeRows(target.year, [], target.title) // make sure the trip tab exists
-      const [vals] = await this.g.read(book.id, await py<string[]>('cash_ranges', [target.title]), 'UNFORMATTED_VALUE')
-      await this.g.write(book.id, await py<Plan['data']>('cash_row', [vals, target.title, fields]), 'USER_ENTERED')
+      const [ranges, fn, args] = row.kind === 'earn'
+        ? [await py<string[]>('paid_ranges', [target.title]), 'paid_row', [] as unknown[]]
+        : [await py<string[]>('cash_ranges', [target.title, row.currency]), 'cash_row', [row.currency]]
+      const [vals] = await this.g.read(book.id, ranges, 'UNFORMATTED_VALUE')
+      await this.g.write(book.id, await py<Plan['data']>(fn, [vals, target.title, fields, ...args]), 'USER_ENTERED')
       return
     }
     await this.placeRows(target.year, [fields], target.title)
@@ -813,8 +831,10 @@ export class PyodideBackend implements Backend {
       })),
       people: body('People').map((r) => ({ statementName: s(r[0]), shownAs: s(r[1]) })),
       trips: body('Trips').map((r) => ({
-        name: s(r[0]), start: s(r[1]), end: s(r[2]), currency: s(r[3]) || undefined,
-        rate: s(r[4]) ? Number(r[4]) : undefined, match: s(r[5]).split('|').map((m) => m.trim()).filter(Boolean),
+        name: s(r[0]), start: s(r[1]), end: s(r[2]),
+        currencies: s(r[3]).split(',').map((c, i) => ({ code: c.trim(), rate: Number(s(r[4]).split(',')[i]) || undefined }))
+          .filter((c) => c.code),
+        match: s(r[5]).split('|').map((m) => m.trim()).filter(Boolean),
         link: s(r[6]) || undefined,
       })),
       ownPayees: body('Own payees').map((r) => s(r[0])),
@@ -826,7 +846,8 @@ export class PyodideBackend implements Backend {
     const tabs: Record<string, unknown[][]> = {
       Rules: st.rules.map((r) => [r.match, r.category ?? '', r.importance ?? '', r.item ?? '', r.trip ?? '', r.skip ? 'TRUE' : '', r.source ?? '', '']),
       People: st.people.map((p) => [p.statementName, p.shownAs]),
-      Trips: st.trips.map((t) => [t.name, t.start, t.end, t.currency ?? '', t.rate ?? '', t.match.join(' | '), t.link ?? '', 180]),
+      Trips: st.trips.map((t) => [t.name, t.start, t.end, t.currencies.map((c) => c.code).join(', '),
+        t.currencies.map((c) => c.rate ?? '').join(', '), t.match.join(' | '), t.link ?? '', 180]),
       'Own payees': st.ownPayees.map((p) => [p]),
     }
     // Headers stay; everything under them is replaced.

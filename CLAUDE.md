@@ -86,10 +86,13 @@ gspread (Pyodide check: see README).
   P-T (Date, Item, Amount, Source, Remarks), summary W-X with Final in X6.
   Hidden keys in H and U; blank columns I, L, O, V. Section headers are
   coloured. Source = bank/wallet; Remarks starts as the statement text.
-- Trip tabs: RM spending A-G (key in H), spending in the trip currency J-O
-  and money received T-W (no keys; the app can append to J-O), summary Q-R
-  with the trip total in R8. Month X5 = trips ending that month, Final (X6)
-  subtracts it.
+- Trip tabs (the user's 2025 trip sheets): RM spending A-G (key in H), paid
+  back to you (RM) J-M (key in N), summary P-Q with the trip total in Q4 =
+  RM spent + each currency x its rate - paid back; then one spending block
+  per currency from S (Trip.currency + Trip.extra, each with its rate), then
+  money received in other currencies. Month X5 = trips ending that month,
+  Final (X6) subtracts it. Older trip tabs are rebuilt (trip_rebuild), rows
+  kept.
 - Older tabs are converted by inserting columns (sheetplan.upgrade_*), never
   by rewriting rows. Rows the app adds by hand get "m-..." keys.
 - Never reorder or write to tabs fincomp doesn't manage; insert new tabs

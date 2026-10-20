@@ -257,9 +257,9 @@ It gets its own tab, laid out like the 2023 "Japan Trip" sheet:
 | Columns | What | Filled by |
 |---|---|---|
 | A–G | RM spending: flights, hotels, card charges abroad | fincomp, from statements; or added in the app |
-| J–O | Spending in the trip currency | you, or "Add transaction" with "Amount is in <currency>" |
-| Q–R | Spent in RM, Spent in Yen, rate, **Trip Total (RM)** in R8, Yen received / left (expected) / left (counted) / unaccounted | formulas, except "left (counted)" |
-| T–W | Yen received: money exchange, leftover from parents, friends paying back | you |
+| J–M | Paid back to you (RM): friends' share of what you paid | you, or "Add transaction" (money in, on the trip) |
+| P–Q | **Trip Total (RM)** in Q4 = spent in RM + each currency × its rate − paid back; then each currency's spending, rate and RM | formulas; rates from Settings › Trips |
+| S– | One spending block per currency (a trip can have several, e.g. CHF, EUR, GBP), then money received in other currencies | you, or "Add transaction" paid in that currency |
 
 What goes to the trip tab: statement spending dated within the trip, plus
 earlier bookings whose description matches the trip's `match` keywords, or

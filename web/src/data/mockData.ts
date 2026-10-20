@@ -126,8 +126,8 @@ export function initialState(): MockState {
         { statementName: 'BOB LIM', shownAs: 'Bob Lim' },
       ],
       trips: [
-        { name: 'Penang Trip', start: '2026-09-15', end: '2026-09-17', match: ['AGODA', 'PENANG FERRY'] },
-        { name: 'Japan Trip', start: '2026-11-08', end: '2026-11-20', currency: 'Yen', rate: 0.032, match: ['AIRASIA', 'KLOOK', 'JR PASS'] },
+        { name: 'Penang Trip', start: '2026-09-15', end: '2026-09-17', currencies: [], match: ['AGODA', 'PENANG FERRY'] },
+        { name: 'Japan Trip', start: '2026-11-08', end: '2026-11-20', currencies: [{ code: 'JPY', rate: 0.032 }], match: ['AIRASIA', 'KLOOK', 'JR PASS'] },
       ],
       ownPayees: ['AEON CREDIT SERVICE'],
     },

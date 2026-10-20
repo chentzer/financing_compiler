@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from .config import Config, CustomSheet, Trip
+from .config import Config, CustomSheet, Trip, _list, _rates
 from .models import Transaction
 
 SETTINGS_TITLE = "fincomp Settings"
@@ -89,7 +89,8 @@ def config_from_tabs(values: dict[str, list[list]], passwords: dict[str, str] | 
             continue
         trips.append(Trip(
             name=_s(r, 0), start=date.fromisoformat(_s(r, 1)), end=date.fromisoformat(_s(r, 2)),
-            currency=_s(r, 3), rate=float(_s(r, 4)) if _s(r, 4) else None,
+            currency=(_list(_s(r, 3)) or [""])[0], rate=(_rates(_s(r, 4)) or [None])[0],
+            extra=list(zip(_list(_s(r, 3))[1:], (_rates(_s(r, 4)) + [None] * 9)[1:])),
             match=[m.strip() for m in _s(r, 5).split("|") if m.strip()], link=_s(r, 6),
             lead_days=int(_s(r, 7)) if _s(r, 7) else 180,
         ))
@@ -136,7 +137,8 @@ def tabs_from_config(config: Config) -> dict[str, list[list]]:
             "TRUE" if r.get("skip") else "", r.get("source", ""), r.get("regex", ""),
         ])
     trips = [
-        [t.name, t.start.isoformat(), t.end.isoformat(), t.currency, "" if t.rate is None else t.rate,
+        [t.name, t.start.isoformat(), t.end.isoformat(), ", ".join(c for c, _ in t.currencies()),
+         ", ".join("" if r is None else f"{r:g}" for _, r in t.currencies()),
          SEP.join(t.match), t.link, t.lead_days]
         for t in config.trips
     ]

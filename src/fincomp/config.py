@@ -33,11 +33,18 @@ class Trip:
     name: str
     start: date
     end: date
-    currency: str = ""  # e.g. "Yen": adds the cash-in-that-currency blocks
-    rate: float | None = None  # RM per 1 unit; blank = worked out from "Money Exchange" rows
+    currency: str = ""  # e.g. "JPY": a spending block in that currency
+    rate: float | None = None  # RM per 1 unit of `currency`
+    # More currencies on the same trip (Europe: CHF, then EUR, GBP), each with its rate.
+    extra: list[tuple[str, float | None]] = field(default_factory=list)
     match: list[str] = field(default_factory=list)
     link: str = ""  # shown as "Trip Link" in C1
     lead_days: int = 180  # how long before the trip a booking can be
+
+    def currencies(self) -> list[tuple[str, float | None]]:
+        """[(currency, RM per 1)] in block order; [] for a trip in RM only."""
+        first = [(self.currency, self.rate)] if self.currency else []
+        return first + [(c, r) for c, r in self.extra if c]
 
     def owns(self, when: date, description: str) -> bool:
         if self.start <= when <= self.end:
@@ -73,14 +80,36 @@ def _date(v) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
+def _list(v) -> list[str]:
+    """"CHF, EUR" or ["CHF", "EUR"] -> ["CHF", "EUR"]."""
+    if v is None or v == "":
+        return []
+    items = v if isinstance(v, list) else str(v).split(",")
+    return [str(x).strip() for x in items if str(x).strip()]
+
+
+def _rates(v) -> list[float | None]:
+    if v is None or v == "":
+        return []
+    items = v if isinstance(v, list) else str(v).split(",")
+    out = []
+    for x in items:
+        try:
+            out.append(float(x) if str(x).strip() else None)
+        except ValueError:
+            out.append(None)
+    return out
+
+
 def _trip(raw: dict) -> Trip:
     match = raw.get("match", [])
     return Trip(
         name=str(raw["name"]),
         start=_date(raw["start"]),
         end=_date(raw["end"]),
-        currency=str(raw.get("currency", "")),
-        rate=float(raw["rate"]) if raw.get("rate") else None,
+        currency=_list(raw.get("currency"))[0] if _list(raw.get("currency")) else "",
+        rate=_rates(raw.get("rate"))[0] if _rates(raw.get("rate")) else None,
+        extra=list(zip(_list(raw.get("currency"))[1:], (_rates(raw.get("rate")) + [None] * 9)[1:])),
         match=[match] if isinstance(match, str) else list(match),
         link=str(raw.get("link", "")),
         lead_days=int(raw.get("lead_days", 180)),

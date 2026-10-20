@@ -209,6 +209,7 @@ def upgrade_columns(sheet_ids: dict, headers: dict) -> dict:
         "old": old,
         "requests": sheetplan.insert_columns(_ids(sheet_ids), old),
         "finish": old + sheetplan.unfinished_tabs(headers),  # then upgrade_finish these
+        "trips": sheetplan.trip_versions(headers),  # then upgrade_trips these
     }
 
 
@@ -234,9 +235,10 @@ def place_target(target: str, day: str) -> dict:
     the month of its date."""
     trip = next((t for t in _state["config"].trips if t.name == target), None)
     if trip:
-        return {"title": trip.name, "trip": True, "year": trip.start.year, "currency": trip.currency}
+        return {"title": trip.name, "trip": True, "year": trip.start.year,
+                "currencies": [c for c, _ in trip.currencies()]}
     d = date.fromisoformat(day[:10])
-    return {"title": month_title(d.year, d.month), "trip": False, "year": d.year, "currency": ""}
+    return {"title": month_title(d.year, d.month), "trip": False, "year": d.year, "currencies": []}
 
 
 def layout_cells() -> dict:
@@ -280,13 +282,40 @@ def finish_rows(year: int, sheet_ids: dict, values: dict) -> dict:
     return {"clear": done.clear, "data": done.data, "requests": done.requests, "added": done.added}
 
 
-def cash_ranges(trip_title: str) -> list[str]:
-    c = sheetplan.CASH_COLS
+def _trip(name: str):
+    trip = next((t for t in _state["config"].trips if t.name == name), None)
+    if trip is None:
+        raise ValueError(f'No trip called "{name}" in Settings › Trips.')
+    return trip
+
+
+def _currency_index(trip, currency: str) -> int:
+    codes = [c.strip().upper() for c, _ in trip.currencies()]
+    want = (currency or "").strip().upper()
+    if want not in codes:
+        raise ValueError(f'{trip.name} has no {currency} block: add {currency} to the trip in Settings › Trips.')
+    return codes.index(want)
+
+
+def cash_ranges(trip_title: str, currency: str) -> list[str]:
+    from .accounts import currency_cols
+
+    c = currency_cols(_currency_index(_trip(trip_title), currency))
     return [f"{sheetplan.quote(trip_title)}!{c[0]}4:{c[-1]}"]
 
 
-def cash_row(values: list[list], trip_title: str, fields: dict) -> list[dict]:
-    return sheetplan.cash_row(values or [], trip_title, fields)
+def cash_row(values: list[list], trip_title: str, fields: dict, currency: str) -> list[dict]:
+    return sheetplan.cash_row(values or [], trip_title, fields, _currency_index(_trip(trip_title), currency))
+
+
+def paid_ranges(trip_title: str) -> list[str]:
+    from .accounts import PAID_COLS, PAID_KEY
+
+    return [f"{sheetplan.quote(trip_title)}!{PAID_COLS[0]}4:{PAID_KEY}"]
+
+
+def paid_row(values: list[list], trip_title: str, fields: dict) -> list[dict]:
+    return sheetplan.paid_row(values or [], trip_title, fields)
 
 
 def trip_refresh(sheet_ids: dict) -> dict:
@@ -295,52 +324,79 @@ def trip_refresh(sheet_ids: dict) -> dict:
 
 
 def trips() -> list[dict]:
-    return [{"name": t.name, "currency": t.currency, "start": t.start.isoformat(), "end": t.end.isoformat()}
-            for t in _state["config"].trips]
+    return [{"name": t.name, "currencies": [c for c, _ in t.currencies()], "start": t.start.isoformat(),
+             "end": t.end.isoformat()} for t in _state["config"].trips]
 
 
-def old_accounts(files: list[dict]) -> dict:
+def old_accounts(files: list[dict], before: str = "") -> dict:
     """An accounts workbook kept by hand (template layout), as files[0]:
-    {"months": {title: rows}, "years": {title: year}} to place with
-    prepare_rows/finish_rows."""
+    months (each a list of rows), trips and your own tabs, to place with
+    prepare_rows/finish_rows, trip_extras and custom_add_many. `before`
+    ("2026-08"): leave out that month on (your statements cover it) and the
+    trips in it."""
     from .old_accounts import rows_from_workbook, sheets_from_workbook, trips_from_workbook
 
     data = bytes(files[0]["data"])
     months = rows_from_workbook(data)
     trips = trips_from_workbook(data)
+    skipped = []
+    if before:
+        def ym(title):
+            y, m = parse_month_title(title)
+            return f"{y}-{m:02d}"
+        skipped = [t for t in months if ym(t) >= before] + [t["name"] for t in trips if t["end"][:7] >= before]
+        months = {t: rows for t, rows in months.items() if ym(t) < before}
+        trips = [t for t in trips if t["end"][:7] < before]
     return {
         "months": months, "years": {t: parse_month_title(t)[0] for t in months},
-        "trips": trips,  # [{name, currency, start, end, year, rate, rm, cash, received}]
-        "sheets": sheets_from_workbook(data, {t["name"] for t in trips}),  # [{name, year, counts, tables}]
+        "trips": trips,  # [{name, currencies: [{code, rate}], start, end, year, rm, paid, cash: {code: rows}, received}]
+        "sheets": sheets_from_workbook(data, {t["name"] for t in trips_from_workbook(data)}),
+        "skipped": skipped,
     }
 
 
-def trip_extra_ranges(trip_title: str) -> list[str]:
-    """The trip tab's currency spending (J-O) and money received (T-W)."""
-    from .accounts import CASH_COLS, RECEIVED_COLS
+TRIP_BLOCK_FIELDS = {
+    "paid": ["date", "item", "amount", "remarks", "key"],
+    "cash": ["date", "item", "category", "amount", "importance", "remarks"],
+    "received": ["date", "item", "currency", "amount", "remarks"],
+}
 
+
+def trip_extra_ranges(trip_title: str) -> list[dict]:
+    """[{block, currency, range}] of a trip tab's blocks other than RM spending."""
+    from .accounts import PAID_COLS, PAID_KEY, currency_cols, received_cols
+
+    trip = _trip(trip_title)
     q = sheetplan.quote(trip_title)
-    return [f"{q}!{CASH_COLS[0]}4:{CASH_COLS[-1]}", f"{q}!{RECEIVED_COLS[0]}4:{RECEIVED_COLS[-1]}"]
+    out = [{"block": "paid", "currency": "", "range": f"{q}!{PAID_COLS[0]}4:{PAID_KEY}"}]
+    for i, (code, _) in enumerate(trip.currencies()):
+        c = currency_cols(i)
+        out.append({"block": "cash", "currency": code, "range": f"{q}!{c[0]}4:{c[-1]}"})
+    if trip.currencies():
+        rc = received_cols(len(trip.currencies()))
+        out.append({"block": "received", "currency": "", "range": f"{q}!{rc[0]}4:{rc[-1]}"})
+    return out
 
 
-def trip_extras(trip_title: str, cash_now: list[list], received_now: list[list], cash: list[dict],
-                received: list[dict]) -> list[dict]:
-    """Rows for those two blocks that aren't there yet (same date, item and
-    amount), written under what's there. They have no keys: matching by
-    content keeps a second import from adding them twice."""
-    from .accounts import CASH_COLS, RECEIVED_COLS
+def trip_extras(trip_title: str, now: list[list[list]], paid: list[dict], cash: dict, received: list[dict]) -> list[dict]:
+    """Rows for the trip's other blocks (in trip_extra_ranges order; `now` is
+    what each block holds) that aren't there yet, written under what's there.
+    Matched by date, item and amount, so a second import adds nothing."""
     from .sheetplan import as_amount, as_date, cell
 
     def ident(d, item, amount):
         day = as_date(d) if d not in ("", None) else None
         return (day.isoformat() if day else "", str(item).strip(), as_amount(amount))
 
-    q = sheetplan.quote(trip_title)
     out = []
-    for cols, now, rows, fields in ((CASH_COLS, cash_now or [], cash, ["date", "item", "category", "amount", "importance", "remarks"]),
-                                    (RECEIVED_COLS, received_now or [], received, ["date", "item", "amount", "remarks"])):
+    for spec, have_rows in zip(trip_extra_ranges(trip_title), now):
+        block = spec["block"]
+        fields = TRIP_BLOCK_FIELDS[block]
+        rows = paid if block == "paid" else received if block == "received" else (cash or {}).get(spec["currency"], [])
         amount_i = fields.index("amount")
-        have = [ident(r[0] if r else "", r[1] if len(r) > 1 else "", r[amount_i] if len(r) > amount_i else 0) for r in now]
+        item_i = fields.index("item")
+        have = [ident(r[0] if r else "", r[item_i] if len(r) > item_i else "", r[amount_i] if len(r) > amount_i else 0)
+                for r in (have_rows or [])]
         fresh = []
         for r in rows:
             k = ident(r.get("date", ""), r.get("item", ""), r.get("amount", 0))
@@ -350,9 +406,38 @@ def trip_extras(trip_title: str, cash_now: list[list], received_now: list[list],
             fresh.append([(as_date(r["date"]).isoformat() if r.get("date") else "") if f == "date" else
                           (round(float(r.get(f) or 0), 2) if f == "amount" else cell(r.get(f, ""))) for f in fields])
         if fresh:
-            start = 4 + len(now)
-            out.append({"range": f"{q}!{cols[0]}{start}:{cols[len(fields) - 1]}{start + len(fresh) - 1}", "values": fresh})
+            col0, rest = spec["range"].split("!")[1].split(":")
+            first_col = "".join(ch for ch in col0 if ch.isalpha())
+            last_col = rest
+            start = 4 + len(have_rows or [])
+            out.append({"range": f"{spec['range'].split('!')[0]}!{first_col}{start}:{last_col}{start + len(fresh) - 1}",
+                        "values": fresh})
     return out
+
+
+def upgrade_trip_ranges(trips: dict) -> list[str]:
+    """Rows of the trip tabs being rebuilt (trips: {title: version})."""
+    return [f"{sheetplan.quote(t)}!A4:AZ" for t in trips]
+
+
+def upgrade_trips(year: int, titles: list[str], sheet_ids: dict, trips: dict, values: dict) -> dict:
+    """Trip tabs in an older layout rewritten in the current one, then every
+    month's Trips/Final and the Year End Summary. Call recompile() first."""
+    compiled = _state.get("compiled")
+    by_key = {r.key: r for r in compiled.rows} if compiled else {}
+    config = _state["config"]
+    clear, data, requests = [], [], []
+    for title, version in trips.items():
+        trip = next((t for t in config.trips if t.name == title), None)
+        if trip is None:
+            continue
+        rng = f"{sheetplan.quote(title)}!A4:AZ"
+        c, d, r = sheetplan.trip_rebuild(trip, version, values.get(rng, []), by_key, config, int(sheet_ids[title]))
+        clear += c
+        data += d
+        requests += r
+    data += sheetplan.links_plan(int(year), list(titles), config)
+    return {"clear": clear, "data": data, "requests": requests}
 
 
 # ---- custom sheets (Sheets section) ------------------------------------------------

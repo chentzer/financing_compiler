@@ -96,14 +96,14 @@ class SplitwiseParser(Parser):
         code = currency_code(currency)
         if code == "MYR":
             return 1.0
-        trips = [t for t in self.config.trips if t.currency and currency_code(t.currency) == code]
-        if not trips:
+        found = [(t, r) for t in self.config.trips for c, r in t.currencies() if currency_code(c) == code]
+        if not found:
             raise ParseError(f"Add the trip in {code} (with its rate) in Settings › Trips first.")
-        trip = min(trips, key=lambda t: 0 if t.start <= when <= t.end else min(abs((when - t.start).days),
-                                                                                abs((when - t.end).days)))
-        if not trip.rate:
+        trip, rate = min(found, key=lambda tr: 0 if tr[0].start <= when <= tr[0].end else min(
+            abs((when - tr[0].start).days), abs((when - tr[0].end).days)))
+        if not rate:
             raise ParseError(f"Set the RM rate for {code} on \"{trip.name}\" in Settings › Trips first.")
-        return trip.rate
+        return rate
 
     def parse_bytes(self, name: str, data: bytes, password: str = "") -> list[Transaction]:
         rows = list(csv.reader(io.StringIO(data.decode("utf-8-sig"))))
