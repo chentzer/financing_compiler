@@ -56,7 +56,7 @@ const SETTINGS_RANGES: Record<string, string> = {
   Rules: "'Rules'!A1:H", People: "'People'!A1:B", Trips: "'Trips'!A1:H", 'Own payees': "'Own payees'!A1:A",
   Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D",
 }
-const LEDGER_RANGE = "'Ledger'!A1:M"
+const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
 interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; ok: boolean }
@@ -84,7 +84,16 @@ export class PyodideBackend implements Backend {
   private rowsAt = new Map<string, Where>()
   private cardsAt = new Map<string, Where & { card: Card }>()
 
+  private auth: Auth
+
+  /** Your names, to find your column in a Splitwise export. */
+  private me(): string[] {
+    const u = this.auth.currentUser()
+    return u ? [u.name ?? '', u.email.split('@')[0].replace(/[._]+/g, ' ')] : []
+  }
+
   constructor(auth: Auth) {
+    this.auth = auth
     this.g = new Google(() => auth.getAccessToken())
     warmUp()
   }
@@ -372,7 +381,7 @@ export class PyodideBackend implements Backend {
     const settings = await this.readSettings()
     const saved = (await this.vaultState()) === 'unlocked' ? { ...this.unlocked!.passwords } : {}
     const passwords = { ...saved, ...typed }
-    const out = await py<CompileOut>('compile_upload', [null, settings.values, passwords, settings.ledger],
+    const out = await py<CompileOut>('compile_upload', [null, settings.values, passwords, settings.ledger, this.me()],
       files.map((f) => ({ name: f.name, data: f.data })))
 
     const okFiles = out.files.filter((f) => f.ok)

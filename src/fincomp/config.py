@@ -88,6 +88,9 @@ class Config:
     # How people show in Remarks: {"TAN MEI LING": "Mei Ling"}. Unlisted names
     # are shortened automatically.
     people: dict[str, str] = field(default_factory=dict)
+    # Your own name(s), to find your column in a Splitwise export. The app
+    # passes your Google account name.
+    me: list[str] = field(default_factory=list)
     # Your answers from the To Update cards, so each is asked only once.
     # Outside the repo: it's personal data.
     answers: Path = CONFIG_HOME / "answers.json"
@@ -126,5 +129,6 @@ def load_config(path: Path | None) -> Config:
         record_earnings=bool(raw.get("record_earnings", True)),
         own_payees=list(raw.get("own_payees", ["AEON CREDIT SERVICE"])),
         people={k.upper(): str(v) for k, v in raw.get("people", {}).items()},
+        me=[raw["me"]] if isinstance(raw.get("me"), str) else list(raw.get("me", [])),
         answers=Path(raw["answers"]).expanduser() if raw.get("answers") else CONFIG_HOME / "answers.json",
     )

@@ -31,6 +31,7 @@ class Transaction:
     counterparty: str = ""
     purpose: str = ""
     note: str = ""
+    category: str = ""  # when the source says (e.g. Splitwise's "Dining out" -> Food)
     file: str = field(default="", compare=False)
 
     @classmethod

@@ -36,7 +36,9 @@ python -m venv .venv
   in `parsers/__init__.py`. PDF parsers use only `pypdf` + `re`
   (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
   positions. Only TNG v2 (camelot) and CSV (pandas) are CLI-only, and they
-  import those lazily.
+  import those lazily. `splitwise.py` reads a Splitwise group export (stdlib
+  csv): what the user paid = spending, repayments to them = earnings,
+  converted at the trip's rate; never paired as transfers.
 - `pipeline.py`: statements → parsed → dedupe → transfer pairing → account
   rows → tabs. Used by both the CLI and the web app.
 - `combine.py`: dedupe overlapping statements, pair transfers between the

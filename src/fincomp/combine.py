@@ -50,7 +50,8 @@ def match_transfers(transactions: list[Transaction], window_days: int) -> list[T
     matches = []
     known = [t for t in transactions if t.transfer]
     _pair(known, known, window_days, used, matches)
-    open_ = [t for t in transactions if not t.internal or t.transfer]
+    # Splitwise rows are money between you and friends, never your own accounts.
+    open_ = [t for t in transactions if (not t.internal or t.transfer) and t.source != "Splitwise"]
     _pair(open_, open_, window_days, used, matches)
     return matches
 

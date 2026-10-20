@@ -11,10 +11,13 @@ from .gx import GxParser
 from .maybank_cc import MaybankCardParser
 from .maybank_sa import MaybankSavingsParser
 from .ryt import RytParser
+from .splitwise import SplitwiseParser
 from .tng import TngParser
 
 # Add new statement formats here.
-BUILTIN_PARSERS: list[type[Parser]] = [AeonParser, AeonCreditParser, GxParser, MaybankCardParser, MaybankSavingsParser, RytParser, TngParser]
+BUILTIN_PARSERS: list[type[Parser]] = [
+    AeonParser, AeonCreditParser, GxParser, MaybankCardParser, MaybankSavingsParser, RytParser, SplitwiseParser, TngParser,
+]
 
 
 def build_parsers(config: Config) -> list[Parser]:

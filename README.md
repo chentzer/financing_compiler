@@ -104,6 +104,7 @@ flat CSV), `--transfer-window N`, `--no-transfers`, `--upload`, `--no-review`.
 | Ryt Bank (Main Account + pockets) | PDF | `Ryt_Bank*.pdf` |
 | Touch 'n Go eWallet (wallet + GO+) | PDF (both layouts), password in `passwords.tng` | `*transactions*.pdf`, `tng*.pdf` |
 | Maybank credit card | PDF | `<16-digit card no>_<YYYYMMDD>.pdf` |
+| Splitwise group (Export as spreadsheet) | CSV | its header (Date, Description, Category, Cost, Currency, then members) |
 | Any bank/wallet with a CSV or XLSX export | CSV/XLSX | a `[[csv]]` block in `config.toml` |
 
 File-name patterns can be changed under `[patterns]` in `config.toml`.
@@ -130,6 +131,17 @@ points redemption and cashback. Items are the merchant name with the city
 and country removed ("AEON BIG-JAYA ONE PETALING JAYAMY" → "AEON BIG-JAYA
 ONE"), dated by transaction date. The parsed charges are checked against the
 statement's "Total charges" and "Closing balance".
+
+Splitwise notes: your column is found by your name (your Google account
+name in the app, `me = ["..."]` in `config.toml`). What you paid is
+spending: expenses where your balance went up, and solo expenses where every
+balance is 0. Money paid back to you ("Bob paid Jane") is earnings; money you
+paid a friend is spending. Expenses someone else paid, and payments between
+other members, are left out. Amounts are converted to RM at the rate of the
+trip in that currency (Settings › Trips), so spending during the trip lands
+on the trip tab and repayments on the month tab. Remarks keep the original
+amount ("Lunch · JPY 4,000.00"), and Splitwise categories like Dining out
+fill Category. A later export of the same group only adds what's new.
 
 AEON Bank notes: moves between your account and your Savings pot are
 internal. So are DuitNow transfers to or from your own name, which the

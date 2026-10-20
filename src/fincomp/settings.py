@@ -173,6 +173,6 @@ def ledger_from_rows(rows: list[list]) -> list[Transaction]:
             type=str(rec.get("type", "")), reference=str(rec.get("reference", "")),
             internal=_yes(rec.get("internal", "")), transfer=_yes(rec.get("transfer", "")),
             counterparty=str(rec.get("counterparty", "")), purpose=str(rec.get("purpose", "")),
-            note=str(rec.get("note", "")), file=str(rec.get("file", "")),
+            note=str(rec.get("note", "")), category=str(rec.get("category", "")), file=str(rec.get("file", "")),
         ))
     return out

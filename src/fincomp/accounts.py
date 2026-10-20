@@ -213,7 +213,7 @@ def build_rows(
     Item "Transfer", Category blank, Remarks the statement's text."""
     rows = []
     for key, t, rule, answer, who in _classify(transactions, config, answers or {}):
-        category = answer.get("category") or rule.get("category", "")
+        category = answer.get("category") or rule.get("category", "") or t.category
         importance = answer.get("importance") or rule.get("importance", "")
         item = answer.get("item") or rule.get("item") or _sentence(t.purpose) or _fallback_item(t)
         kind = "earn" if t.amount > 0 else "spend"

@@ -31,10 +31,13 @@ def _config(settings: dict, passwords: dict | None):
     return S.config_from_tabs(settings or {}, passwords or {})
 
 
-def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: list[list]) -> dict:
+def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: list[list],
+                   me: list[str] | None = None) -> dict:
     """files: [{"name": str, "data": bytes}]. settings: {tab: rows} of the
-    Settings sheet. ledger: the Ledger tab's rows (header first)."""
+    Settings sheet. ledger: the Ledger tab's rows (header first). me: your
+    name(s), for Splitwise exports."""
     config = _config(settings, passwords)
+    config.me = [m for m in (me or []) if m]
     earlier = S.ledger_from_rows(ledger or [])
     compiled: Compiled = compile_statements([(f["name"], bytes(f["data"])) for f in files], config, earlier=earlier)
     _state.update(config=config, compiled=compiled, prepared={})

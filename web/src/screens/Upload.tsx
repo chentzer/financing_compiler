@@ -4,7 +4,7 @@ import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
 import { STATEMENT_SOURCES, type UploadFile, type UploadResult } from '../data/Backend'
 
-const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? key ?? ''
+const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? (key === 'splitwise' ? 'Splitwise' : (key ?? ''))
 
 async function read(f: File): Promise<UploadFile> {
   return { name: f.name, data: new Uint8Array(await f.arrayBuffer()) }
@@ -43,7 +43,8 @@ function UploadInner() {
   /** Each pick adds to the list (statements often sit in different folders);
    * picking the same file again replaces it. */
   async function pick(list: FileList | null) {
-    const pdfs = [...(list ?? [])].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name))
+    // Statement PDFs, and Splitwise exports (CSV).
+    const pdfs = [...(list ?? [])].filter((f) => f.type === 'application/pdf' || /\.(pdf|csv)$/i.test(f.name))
     if (!pdfs.length) return
     const added = await Promise.all(pdfs.map(read))
     setPicked((prev) => [...prev.filter((p) => !added.some((a) => a.name === p.name)), ...added])
@@ -94,9 +95,10 @@ function UploadInner() {
         }}
       >
         <p className="muted">
-          Pick statement PDFs from any of your banks or e-wallets: several at once, or a few at a time from
-          different folders (or drop them here). They're read on this device; only the results go to your Google
-          Drive. Saved passwords are used automatically.
+          Pick statement PDFs from any of your banks or e-wallets, or a Splitwise export (CSV): several at once,
+          or a few at a time from different folders (or drop them here). They're read on this device; only the
+          results go to your Google Drive. Saved passwords are used automatically. For Splitwise, what you paid is
+          spending and money paid back to you is earnings, at your trip's rate (Settings › Trips).
         </p>
         <label className="toggle">
           <input
@@ -114,7 +116,7 @@ function UploadInner() {
         <input
           ref={input}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,text/csv,.csv"
           multiple
           hidden
           onChange={(e) => {
@@ -124,7 +126,7 @@ function UploadInner() {
         />
         <div className="btn-row">
           <button className="btn" onClick={() => input.current?.click()} disabled={busy}>
-            {picked.length ? 'Add more PDFs' : 'Choose PDFs'}
+            {picked.length ? 'Add more files' : 'Choose files'}
           </button>
           <button className="btn primary" onClick={() => run(picked)} disabled={busy || picked.length === 0}>
             {busy ? 'Working…' : picked.length ? `Upload ${picked.length} ${picked.length === 1 ? 'file' : 'files'}` : 'Upload'}
