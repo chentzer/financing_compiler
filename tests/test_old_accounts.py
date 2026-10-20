@@ -76,3 +76,29 @@ def test_into_a_new_year_sheet_and_not_twice():
     }
     again = webapi.finish_rows(2022, ids, {r: sheet.get(r, []) for r in prep["reads"]})
     assert again["added"] == 0
+
+
+def test_month_tabs_without_the_year_and_amount_only_rows():
+    from fincomp.old_accounts import sheets_from_workbook
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "January"  # 2024's workbook names months without the year
+    for col, h in zip("ABCDEF", ["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks"]):
+        ws[f"{col}2"] = h
+    ws.append([datetime(2024, 1, 3), "Lunch", "Food", 12.0, "Essential"])
+    ny = wb.create_sheet("New Years")
+    ny["A1"] = "Ang Pao"
+    for col, h in zip("ABCD", ["Date", "Person", "Amount (RM)", "Remarks"]):
+        ny[f"{col}2"] = h
+    ny["C3"], ny["C4"] = 100, 50  # only the amounts were kept
+    ny["A5"], ny["C5"] = "Total", "=SUM(C3:C4)"
+    buf = io.BytesIO()
+    wb.save(buf)
+    data = buf.getvalue()
+
+    months = rows_from_workbook(data)
+    assert list(months) == ["January 2024"] and months["January 2024"][0]["item"] == "Lunch"
+    (sheet,) = sheets_from_workbook(data)
+    assert sheet["name"] == "New Years" and sheet["year"] == 2024
+    assert [r["amount"] for r in sheet["tables"][0]["rows"]] == [100.0, 50.0]  # the total row isn't a row

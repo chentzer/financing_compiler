@@ -49,9 +49,11 @@ def _col(ref: str) -> int:
     return n - 1
 
 
-def read_sheets(data: bytes) -> dict[str, dict[int, dict[int, object]]]:
+def read_sheets(data: bytes, formulas: dict[str, set[tuple[int, int]]] | None = None
+                ) -> dict[str, dict[int, dict[int, object]]]:
     """{sheet title: {row number: {0-based column: value}}}. Numbers stay
-    numbers (dates are Excel serials); formulas give their saved result."""
+    numbers (dates are Excel serials); formulas give their saved result.
+    `formulas`, if given, gets {title: {(row, column)}} of cells holding a SUM."""
     z = zipfile.ZipFile(io.BytesIO(data))
     shared = []
     if "xl/sharedStrings.xml" in z.namelist():
@@ -80,6 +82,9 @@ def read_sheets(data: bytes) -> dict[str, dict[int, dict[int, object]]]:
                 value = float(v.text)
             row = int(re.search(r"\d+", ref).group())
             rows.setdefault(row, {})[_col(ref)] = value
+            f = c.find("m:f", NS)
+            if formulas is not None and f is not None and "SUM" in (f.text or "").upper():
+                formulas.setdefault(sheet.get("name"), set()).add((row, _col(ref)))
         out[sheet.get("name")] = rows
     return out
 
@@ -112,12 +117,38 @@ def _blocks(header: dict[int, object]) -> list[tuple[str, dict[str, int]]]:
     return blocks
 
 
+MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+          "november", "december"]
+
+
+def month_tabs(sheets: dict[str, dict[int, dict[int, object]]]) -> dict[str, str]:
+    """{tab title: month title}. "September 2023" as it is; a tab named just
+    "January" (2024's workbook) gets the year of its dates, or the year
+    most of the workbook's dates are in."""
+    def years_in(rows) -> list[int]:
+        return [d.year for cells in rows.values() for v in cells.values()
+                if isinstance(v, float) and 30000 < v < 60000 and (d := _date(v))]
+    everything = Counter(y for rows in sheets.values() for y in years_in(rows))
+    out = {}
+    for title, rows in sheets.items():
+        if parse_month_title(title):
+            out[title] = title
+        elif title.strip().lower() in MONTHS:
+            ys = Counter(years_in(rows)) or everything
+            if ys:
+                out[title] = f"{title.strip().capitalize()} {ys.most_common(1)[0][0]}"
+    return out
+
+
 def rows_from_workbook(data: bytes) -> dict[str, list[dict]]:
     """{month tab title: [row fields]} for every month tab in the workbook."""
     out: dict[str, list[dict]] = {}
-    for title, rows in read_sheets(data).items():
-        if not parse_month_title(title):
-            continue  # Format, Year End Summary, your own tabs
+    sheets = read_sheets(data)
+    months = month_tabs(sheets)
+    for tab, rows in sheets.items():
+        if tab not in months:
+            continue  # Format, Year End Summary, trips, your own tabs
+        title = months[tab]
         header_row = next((r for r in sorted(rows) if r <= 5 and sum(
             str(v).strip().lower() == "date" for v in rows[r].values()) >= 1), None)
         if header_row is None:
@@ -213,10 +244,11 @@ def trips_from_workbook(data: bytes) -> list[dict]:
     a block in the trip's currency with Category (spending), and one without
     (money received). The trip's dates come from its currency spending."""
     sheets = read_sheets(data)
-    years = [parse_month_title(t)[0] for t in sheets if parse_month_title(t)]
+    months = month_tabs(sheets)
+    years = [parse_month_title(t)[0] for t in months.values()]
     out = []
     for title, rows in sheets.items():
-        if parse_month_title(title) or 3 not in rows:
+        if title in months or 3 not in rows:
             continue
         header = rows[3]
         blocks = [(s, _block(header, s)) for s in _starts(header)]
@@ -267,13 +299,15 @@ def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict
     Amount (RM), Remarks (the 2023 "Chinese New Year" ang pao tab). Whether a
     sheet counted as earnings or spending comes from the old Year End
     Summary's formulas."""
-    sheets = read_sheets(data)
-    years = [parse_month_title(t)[0] for t in sheets if parse_month_title(t)]
+    sums: dict[str, set[tuple[int, int]]] = {}
+    sheets = read_sheets(data, sums)
+    months = month_tabs(sheets)
+    years = [parse_month_title(t)[0] for t in months.values()]
     summary = next((t for t in sheets if t.strip().lower() == "year end summary"), None)
     formulas = _formulas(data, summary) if summary else []
     out = []
     for title, rows in sheets.items():
-        if parse_month_title(title) or title in skip or title == summary or 2 not in rows:
+        if title in months or title in skip or title == summary or 2 not in rows:
             continue
         header = rows[2]
         tables, all_dates = [], []
@@ -293,8 +327,10 @@ def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict
                 when = _date(cells.get(start))
                 item = str(cells.get(start + 1) or "").strip() if amount_i != 1 else ""
                 remarks = str(cells.get(start + remarks_i) or "").strip() if remarks_i is not None else ""
-                if not isinstance(amount, float) or not amount or not (when or item):
-                    continue  # blanks, and the old total row (no date, no name)
+                first = cells.get(start)
+                if not isinstance(amount, float) or not amount or (r, start + amount_i) in sums.get(title, set()) \
+                        or (isinstance(first, str) and "total" in first.lower()):
+                    continue  # blanks, and the old total row (a SUM)
                 found.append({"date": when.isoformat() if when else "", "item": item, "amount": round(abs(amount), 2),
                               "remarks": remarks, "key": _key(f"{title}|{start}|{when}|{item}|{amount:.2f}", seen)})
                 if when:
