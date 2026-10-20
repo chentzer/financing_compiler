@@ -33,10 +33,18 @@ export class Google {
   }
 
   private async call<T>(url: string, init: RequestInit = {}): Promise<T> {
-    const r = await fetch(url, {
-      ...init,
-      headers: { Authorization: `Bearer ${await this.token()}`, ...(init.headers ?? {}) },
-    })
+    let r: Response
+    for (let attempt = 0; ; attempt++) {
+      r = await fetch(url, {
+        ...init,
+        headers: { Authorization: `Bearer ${await this.token()}`, ...(init.headers ?? {}) },
+      })
+      // Sheets allows 60 reads and 60 writes a minute per user; a big import
+      // goes over that. Wait for the minute to roll over and try again.
+      if (r.status !== 429 || attempt >= 5) break
+      const wait = Number(r.headers.get('Retry-After')) || Math.min(5 * 2 ** attempt, 40) + Math.random() * 2
+      await new Promise((ok) => setTimeout(ok, wait * 1000))
+    }
     if (!r.ok) {
       let msg = `${r.status} ${r.statusText}`
       try {

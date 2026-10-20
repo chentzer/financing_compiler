@@ -692,13 +692,14 @@ export class PyodideBackend implements Backend {
     }
     let tabs = await this.g.tabs(book.id)
     const prep = await prepare(tabs.map((t) => t.title), created)
+    const changed = prep.add.length + prep.delete.length > 0
     await this.g.batch(book.id, [
       ...prep.add.map((a) => ({
         addSheet: { properties: { title: a.title, index: a.index, gridProperties: { rowCount: a.rows, columnCount: a.cols } } },
       })),
       ...prep.delete.map((t) => ({ deleteSheet: { sheetId: tabs.find((x) => x.title === t)!.sheetId } })),
     ])
-    tabs = await this.g.tabs(book.id)
+    if (changed) tabs = await this.g.tabs(book.id)
     const vals = await this.g.read(book.id, prep.reads, 'FORMULA')
     const values = Object.fromEntries(prep.reads.map((r, i) => [r, vals[i]]))
     const fin = await finish(Object.fromEntries(tabs.map((t) => [t.title, t.sheetId])), values)
