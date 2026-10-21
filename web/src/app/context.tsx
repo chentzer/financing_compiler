@@ -43,18 +43,35 @@ export function useData(): DataContext {
 
 export type Load<T> = { data?: T; error?: string; loading: boolean; reload(): void }
 
+/** What each screen last loaded (per signed-in backend), shown at once when you come back while it refreshes. */
+const loadedBy = new WeakMap<Backend, Map<string, unknown>>()
+function cacheOf(b: Backend): Map<string, unknown> {
+  let m = loadedBy.get(b)
+  if (!m) loadedBy.set(b, (m = new Map()))
+  return m
+}
+
 /** Runs `fn` against the backend and reruns it when `deps` or the data version change. */
 export function useLoad<T>(fn: (b: Backend) => Promise<T>, deps: unknown[] = []): Load<T> {
   const { backend, version } = useData()
-  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({ loading: true })
+  const key = fn.toString() + JSON.stringify(deps)
+  const lastLoaded = cacheOf(backend)
+  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>(() => ({
+    data: lastLoaded.get(key) as T | undefined,
+    loading: true,
+  }))
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
     let live = true
-    setState((s) => ({ ...s, loading: true, error: undefined }))
+    // Never the previous month's data for this one: only what this exact load showed before.
+    setState({ data: lastLoaded.get(key) as T | undefined, loading: true, error: undefined })
     fn(backend).then(
-      (data) => live && setState({ data, loading: false }),
-      (e) => live && setState({ error: errorText(e), loading: false }),
+      (data) => {
+        lastLoaded.set(key, data)
+        if (live) setState({ data, loading: false })
+      },
+      (e) => live && setState((s) => ({ data: s.data, error: errorText(e), loading: false })),
     )
     return () => {
       live = false

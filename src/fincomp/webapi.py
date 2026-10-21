@@ -21,7 +21,6 @@ from datetime import date
 from . import settings as S
 from . import overview, sheetplan
 from .accounts import AccountRow, Tab, deduction_month, month_title, parse_month_title
-from .pipeline import Compiled, compile_statements
 from .suggest import suggest_categories
 
 _state: dict = {}
@@ -39,7 +38,10 @@ def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: l
     config = _config(settings, passwords)
     config.me = [m for m in (me or []) if m]
     earlier = S.ledger_from_rows(ledger or [])
-    compiled: Compiled = compile_statements([(f["name"], bytes(f["data"])) for f in files], config, earlier=earlier)
+    # Imported here: the parsers need pypdf, which the web app only loads for uploads.
+    from .pipeline import compile_statements
+
+    compiled = compile_statements([(f["name"], bytes(f["data"])) for f in files], config, earlier=earlier)
     _state.update(config=config, compiled=compiled, prepared={})
     names = {f["name"] for f in files}
     kept = [t for t in earlier if t.file not in names]
@@ -106,6 +108,11 @@ def month_rows(spend: list[list], earn: list[list]) -> list[dict]:
 
 def summary_ranges(month_title: str) -> list[str]:
     return sheetplan.summary_ranges(month_title)
+
+
+def month_trips(year: int, month: int) -> list[str]:
+    """Trips whose total comes off this month's Final (they end in it)."""
+    return [t.name for t in _state["config"].trips if deduction_month(t) == (int(year), int(month))]
 
 
 def month_summary(by_category: list[list], by_importance: list[list], totals: list[list]) -> dict:

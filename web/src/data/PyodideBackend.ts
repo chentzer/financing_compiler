@@ -128,10 +128,45 @@ export class PyodideBackend implements Backend {
 
   // ---- spreadsheets ---------------------------------------------------------------
 
+  // Where your spreadsheets are, remembered on this device so a visit starts without
+  // searching Drive; the search still runs in the background and corrects it.
+  private idsKey(): string {
+    return `fincomp.ids.${this.auth.currentUser()?.email ?? ''}`
+  }
+
+  private savedIds(): { settings?: string; books?: Book[] } {
+    try {
+      return JSON.parse(localStorage.getItem(this.idsKey()) ?? '{}')
+    } catch {
+      return {}
+    }
+  }
+
+  private rememberIds(): void {
+    try {
+      localStorage.setItem(this.idsKey(), JSON.stringify({ settings: this.settingsId, books: this.books }))
+    } catch {
+      /* storage blocked: Drive is searched each visit */
+    }
+  }
+
   private async settingsBook(): Promise<string> {
     if (this.settingsId) return this.settingsId
-    const found = await this.g.findFiles(SETTINGS_TITLE, SHEET_MIME)
+    const saved = this.savedIds().settings
+    const search = this.g.findFiles(SETTINGS_TITLE, SHEET_MIME)
+    if (saved) {
+      this.settingsId = saved
+      search.then((found) => {
+        if (found.length && found[0].id !== saved) {
+          this.settingsId = found[0].id
+          this.rememberIds()
+        }
+      }, () => undefined)
+      return saved
+    }
+    const found = await search
     this.settingsId = found.length ? found[0].id : await this.createSettings()
+    this.rememberIds()
     return this.settingsId
   }
 
@@ -150,14 +185,31 @@ export class PyodideBackend implements Backend {
     return id
   }
 
+  private async findBooks(): Promise<Book[]> {
+    const files = await this.g.findSpreadsheets(' Accounts')
+    return files
+      .map((f) => ({ id: f.id, m: /^(\d{4}) Accounts$/.exec(f.name) }))
+      .filter((f) => f.m)
+      .map((f) => ({ year: +f.m![1], id: f.id }))
+      .sort((a, b) => a.year - b.year)
+  }
+
   private async yearBooks(): Promise<Book[]> {
     if (!this.books) {
-      const files = await this.g.findSpreadsheets(' Accounts')
-      this.books = files
-        .map((f) => ({ id: f.id, m: /^(\d{4}) Accounts$/.exec(f.name) }))
-        .filter((f) => f.m)
-        .map((f) => ({ year: +f.m![1], id: f.id }))
-        .sort((a, b) => a.year - b.year)
+      const saved = this.savedIds().books
+      if (saved?.length) {
+        this.books = saved
+        // A year made on another device shows up once this finishes.
+        this.findBooks().then((found) => {
+          if (JSON.stringify(found) !== JSON.stringify(this.books)) {
+            this.books = found
+            this.rememberIds()
+          }
+        }, () => undefined)
+      } else {
+        this.books = await this.findBooks()
+        this.rememberIds()
+      }
     }
     // Once per visit, before anything reads or writes rows.
     this.upgraded ??= this.upgradeLayout(this.books).catch((e) => {
@@ -238,10 +290,11 @@ export class PyodideBackend implements Backend {
   }
 
   /** Every month and trip tab's rows in a book, to find a row by key wherever it is. */
-  private async bookValues(book: Book): Promise<{ values: Record<string, Values>; ids: Record<string, number> }> {
+  private async bookValues(book: Book, only?: string): Promise<{ values: Record<string, Values>; ids: Record<string, number> }> {
     await this.useSettings()
     const { tabs, ids } = await this.ids(book.id)
-    const ranges = await py<string[]>('book_ranges', [book.year, tabs.map((t) => t.title)])
+    const titles = only && only in ids ? [only] : tabs.map((t) => t.title)
+    const ranges = await py<string[]>('book_ranges', [book.year, titles])
     const vals = await this.g.read(book.id, ranges, 'FORMULA')
     return { values: Object.fromEntries(ranges.map((r, i) => [r, vals[i]])), ids }
   }
@@ -285,16 +338,17 @@ export class PyodideBackend implements Backend {
     const b = await this.book(year)
     const title = monthTitle(year, month)
     if (!b || !(await this.g.tabs(b.id)).some((t) => t.title === title)) return empty
+    await this.useSettings()
     const ranges = await py<string[]>('summary_ranges', [title])
-    const [cats, imps, totals] = await this.g.read(b.id, ranges, 'UNFORMATTED_VALUE')
+    // Trips whose total comes off this month (as in its Trips cell), read in the same request.
+    const tabs = new Set((await this.g.tabs(b.id)).map((t) => t.title))
+    const names = (await py<string[]>('month_trips', [year, month])).filter((n) => tabs.has(n))
+    const cells = await this.cells()
+    const got = await this.g.read(b.id, [...ranges, ...names.map((n) => `${quote(n)}!${cells.tripTotal}`)], 'UNFORMATTED_VALUE')
+    const [cats, imps, totals] = got
     const sm = await py<{ byCategory: Record<string, number>; byImportance: Record<string, number>; earnings: number; spendings: number; trips: number; final: number }>(
       'month_summary', [cats, imps, totals])
-    // Which trips ended this month: the names in the Trips cell's formula.
-    const cells = await this.cells()
-    const [[t5 = '']] = (await this.g.read(b.id, [`${quote(title)}!${cells.trips}`], 'FORMULA')).map((v) => v[0] ?? [''])
-    const names = [...String(t5).matchAll(new RegExp(`'((?:[^']|'')+)'!${cells.tripTotal}`, 'g'))].map((m) => m[1].replace(/''/g, "'"))
-    const totalsByTrip = names.length ? await this.g.read(b.id, names.map((n) => `${quote(n)}!${cells.tripTotal}`), 'UNFORMATTED_VALUE') : []
-    const trips = names.map((name, i) => ({ name, total: Number(totalsByTrip[i]?.[0]?.[0] ?? 0) }))
+    const trips = names.map((name, i) => ({ name, total: Number(got[3 + i]?.[0]?.[0] ?? 0) }))
     const named = <T extends string>(rec: Record<string, number>, allowed: readonly T[]) =>
       Object.entries(rec)
         .filter(([k]) => k !== 'Total' && (k === 'Not set' || (allowed as readonly string[]).includes(k)))
@@ -343,9 +397,13 @@ export class PyodideBackend implements Backend {
   }
 
   private async writeFields(where: Where, key: string, fields: RowEdit | Record<string, string>): Promise<void> {
-    // The whole book: the row may have been moved to a trip.
-    const { values, ids } = await this.bookValues(where.book)
-    const plan = await py<{ data: { range: string; values: unknown[][] }[] }>('edit_row', [key, values, ids, fields])
+    // Its own tab first; the whole book if it was moved (e.g. to a trip) since.
+    let { values, ids } = await this.bookValues(where.book, where.tab)
+    let plan = await py<{ data: { range: string; values: unknown[][] }[] }>('edit_row', [key, values, ids, fields])
+    if (!plan.data.length) {
+      ;({ values, ids } = await this.bookValues(where.book))
+      plan = await py<{ data: { range: string; values: unknown[][] }[] }>('edit_row', [key, values, ids, fields])
+    }
     if (!plan.data.length) throw new Error('That row is no longer in the sheet. Reload and try again.')
     await this.g.write(where.book.id, plan.data, 'USER_ENTERED')
   }
@@ -480,6 +538,7 @@ export class PyodideBackend implements Backend {
     if (!book) {
       book = { year: sheet.year, id: await this.g.createSpreadsheet(await py<string>('spreadsheet_title', [sheet.year])) }
       this.books = [...(this.books ?? []), book].sort((a, b) => a.year - b.year)
+      this.rememberIds()
       created = true
     }
     let tabs = await this.g.tabs(book.id)
@@ -822,6 +881,7 @@ export class PyodideBackend implements Backend {
       book = { year, id: await this.g.createSpreadsheet(title) }
       created = true
       this.books = [...(this.books ?? []), book].sort((a, b) => a.year - b.year)
+      this.rememberIds()
     }
     let tabs = await this.g.tabs(book.id)
     const prep = await prepare(tabs.map((t) => t.title), created)

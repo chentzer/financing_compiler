@@ -61,3 +61,14 @@ def test_trip_refresh_only_the_changed_trips():
     assert data and all(d["range"].startswith("'Penang Trip'!") for d in data)
     everything, _ = sheetplan.trip_refresh(ids, cfg)
     assert any(d["range"].startswith("'Bali Trip'!") for d in everything)
+
+
+def test_month_trips_are_the_ones_ending_that_month():
+    from fincomp import settings as S
+    from fincomp import webapi
+    from fincomp.config import Config
+    cfg = Config(trips=[Trip("Bali Trip", date(2026, 6, 20), date(2026, 6, 23)),
+                        Trip("Cebu Trip", date(2025, 12, 24), date(2026, 1, 2))])
+    webapi.use_settings(S.tabs_from_config(cfg))
+    assert webapi.month_trips(2026, 6) == ["Bali Trip"]
+    assert webapi.month_trips(2025, 12) == ["Cebu Trip"]  # across new year: its own year's December

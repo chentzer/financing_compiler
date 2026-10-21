@@ -16,13 +16,27 @@ const PYPDF = 'pypdf==6.21.1'  // same version the Python tests run on
 type Pyodide = any
 
 let ready: Promise<Pyodide> | null = null
+let pdfReady: Promise<void> | null = null
+
+// Only reading statements needs pypdf (+ cryptography for AES-encrypted PDFs). They take
+// seconds to load, so screens start without them; they load in the background after start-up,
+// and a call that needs them waits for them.
+const NEEDS_PDF = new Set(['compile_upload', 'recompile'])
+
+function pdfLibs(py: Pyodide): Promise<void> {
+  pdfReady ??= (async () => {
+    await py.loadPackage(['micropip', 'cryptography'])
+    await py.runPythonAsync(`import micropip\nawait micropip.install("${PYPDF}")`)
+  })().catch((e) => {
+    pdfReady = null // try again next time
+    throw e
+  })
+  return pdfReady
+}
 
 async function boot(bundleUrl: string): Promise<Pyodide> {
   const { loadPyodide } = await import(/* @vite-ignore */ `${PYODIDE_URL}pyodide.mjs`)
   const py: Pyodide = await loadPyodide({ indexURL: PYODIDE_URL })
-  // cryptography opens AES-encrypted statements; pypdf reads them.
-  await py.loadPackage(['micropip', 'cryptography'])
-  await py.runPythonAsync(`import micropip\nawait micropip.install("${PYPDF}")`)
 
   const bundle: Record<string, string> = await (await fetch(bundleUrl)).json()
   for (const [rel, text] of Object.entries(bundle)) {
@@ -55,8 +69,13 @@ self.onmessage = async (e: MessageEvent) => {
     bundleUrl: string
   }
   try {
-    ready ??= boot(bundleUrl)
+    if (!ready) {
+      ready = boot(bundleUrl)
+      // Once the app is up, fetch the PDF libraries quietly for the next upload.
+      ready.then((py) => setTimeout(() => pdfLibs(py).catch(() => undefined), 3000), () => undefined)
+    }
     const py = await ready
+    if (NEEDS_PDF.has(fn)) await pdfLibs(py)
     let names: string[] | null = null
     if (files) {
       for (const f of py.FS.readdir('/tmp/upload')) if (f !== '.' && f !== '..') py.FS.unlink(`/tmp/upload/${f}`)
