@@ -563,6 +563,31 @@ export class PyodideBackend implements Backend {
     }
   }
 
+  async deleteSheet(name: string, deleteTab: boolean): Promise<void> {
+    const list = await this.listSheets()
+    const sheet = list.find((s) => s.name === name)
+    if (!sheet) return
+    const id = await this.settingsBook()
+    const rows = await py<unknown[][]>('sheets_rows', [list.filter((s) => s.name !== name)])
+    await this.g.clear(id, ["'Sheets'!A2:E"])
+    if (rows.length) await this.g.write(id, [{ range: "'Sheets'!A2", values: rows }], 'RAW')
+    await this.useSettings(true)
+    const book = await this.book(sheet.year)
+    if (!book) return
+    const tabs = await this.g.tabs(book.id)
+    // The Year End Summary stops adding it first, so nothing points at a deleted tab.
+    if (tabs.some((t) => t.title === 'Year End Summary')) {
+      await this.g.write(book.id, await py<Plan['data']>('year_summary', [sheet.year, tabs.map((t) => t.title)]), 'USER_ENTERED')
+    }
+    const tab = tabs.find((t) => t.title === name)
+    if (deleteTab && tab) await this.g.batch(book.id, [{ deleteSheet: { sheetId: tab.sheetId } }])
+  }
+
+  async sheetLink(name: string): Promise<string | null> {
+    const at = await this.sheetBook(name).catch(() => null)
+    return at ? `https://docs.google.com/spreadsheets/d/${at.book.id}/edit#gid=${at.sheetId}` : null
+  }
+
   private async sheetBook(name: string): Promise<{ book: Book; ranges: string[]; sheetId: number } | null> {
     const sheet = (await this.listSheets()).find((s) => s.name === name)
     if (!sheet) throw new Error(`No sheet called "${name}".`)

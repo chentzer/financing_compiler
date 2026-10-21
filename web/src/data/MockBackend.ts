@@ -62,6 +62,12 @@ export class MockBackend implements Backend {
     tables: [{ name: 'Ang Pao (RM)', currency: 'RM', label: 'Person' }, { name: 'Ang Pao (SGD)', currency: 'SGD', label: 'Person' }],
     category: 'Chinese New Year',
   }, {
+    name: 'New Years', year: 2025, counts: '', category: 'New Years',
+    tables: [{ name: 'Ang Pao (RM)', currency: 'RM', label: 'Person' }],
+  }, {
+    name: 'Expected Monthly Spendings', year: 2025, counts: '',
+    tables: [{ name: 'Expected Monthly Spendings', currency: 'RM', label: 'Item' }],
+  }, {
     name: 'Unit Trusts', year: 2026, counts: '', category: 'Investments',
     tables: [{ name: 'Bought', currency: 'RM', label: 'Fund' }, { name: 'Dividends', currency: 'RM', label: 'Fund' }],
   }]
@@ -164,6 +170,16 @@ export class MockBackend implements Backend {
   async deleteSheetRow(name: string, key: string): Promise<void> {
     await wait()
     this.sheetData.set(name, (this.sheetData.get(name) ?? []).map((rows) => rows.filter((r) => r.key !== key)))
+  }
+
+  async deleteSheet(name: string): Promise<void> {
+    await wait()
+    this.sheets = this.sheets.filter((s) => s.name !== name)
+    this.sheetData.delete(name)
+  }
+
+  async sheetLink(): Promise<string | null> {
+    return null // no Google in the demo
   }
 
   async getKeepPdfCopies(): Promise<boolean> {

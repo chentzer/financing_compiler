@@ -255,11 +255,18 @@ export interface CustomSheet {
 
 /** Sheets in this category are on the Investments tab instead of Sheets. */
 export const INVESTMENTS = 'Investments'
-/** The sheet's category, or for one made before categories: its name ("Investments" for any investing sheet). */
+/** Words that mean the same group, whatever a year's sheet was called. */
+const GROUPS: [RegExp, string][] = [
+  [/invest|stock|share|unit trust|crypto|\basb\b|\bepf\b|dividend/i, INVESTMENTS],
+  [/\bcny\b|chinese new year|new years?\b|ang ?pa[ow]|hong ?bao|red packet|lunar new year/i, 'Chinese New Year'],
+]
+
+/** Which group a sheet sits in: its category (or name), tidied so every year's sheet for the
+ * same thing lands together ("CNY", "New Years", "Chinese New Year 2026" → Chinese New Year). */
 export function sheetCategory(s: Pick<CustomSheet, 'name' | 'category'>): string {
-  const c = (s.category ?? '').trim()
-  if (c) return c
-  return /invest/i.test(s.name) ? INVESTMENTS : s.name.replace(/\s+\d{4}$/, '')
+  const text = (s.category ?? '').trim() || s.name
+  for (const [re, group] of GROUPS) if (re.test(text)) return group
+  return text.replace(/\s*\(?\b(19|20)\d{2}\)?\s*$/, '').trim() || text
 }
 export const isInvestment = (s: Pick<CustomSheet, 'name' | 'category'>) => sheetCategory(s).toLowerCase() === INVESTMENTS.toLowerCase()
 
@@ -344,6 +351,10 @@ export interface Backend {
   addSheetRow(name: string, table: number, row: Omit<SheetRow, 'key'>): Promise<void>
   editSheetRow(name: string, key: string, fields: Partial<Omit<SheetRow, 'key'>>): Promise<void>
   deleteSheetRow(name: string, key: string): Promise<void>
+  /** Take a sheet out of the app; `deleteTab` also deletes its tab (and rows) in Google Sheets. */
+  deleteSheet(name: string, deleteTab: boolean): Promise<void>
+  /** Link to the sheet's tab in Google Sheets, to edit it there; null when it has no tab. */
+  sheetLink(name: string): Promise<string | null>
 
   /** Your category list (Settings › Lists). */
   listCategories(): Promise<Category[]>

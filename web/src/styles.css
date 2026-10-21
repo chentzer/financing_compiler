@@ -1117,3 +1117,11 @@ button.row:hover {
 .chips a.chip {
   text-decoration: none;
 }
+
+.row-date.year {
+  font-weight: 700;
+  color: var(--text);
+}
+.danger-box {
+  border-color: var(--neg);
+}
