@@ -249,7 +249,19 @@ export interface CustomSheet {
   /** RM tables count towards the Year End Summary as this; "" = not counted. */
   counts: '' | 'earnings' | 'spending'
   tables: SheetTable[]
+  /** Groups sheets in the app; "Investments" ones are on their own tab. */
+  category?: string
 }
+
+/** Sheets in this category are on the Investments tab instead of Sheets. */
+export const INVESTMENTS = 'Investments'
+/** The sheet's category, or for one made before categories: its name ("Investments" for any investing sheet). */
+export function sheetCategory(s: Pick<CustomSheet, 'name' | 'category'>): string {
+  const c = (s.category ?? '').trim()
+  if (c) return c
+  return /invest/i.test(s.name) ? INVESTMENTS : s.name.replace(/\s+\d{4}$/, '')
+}
+export const isInvestment = (s: Pick<CustomSheet, 'name' | 'category'>) => sheetCategory(s).toLowerCase() === INVESTMENTS.toLowerCase()
 
 export interface SheetRow {
   key: string

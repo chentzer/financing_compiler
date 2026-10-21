@@ -66,6 +66,9 @@ python -m venv .venv
   (Date | <label> | Amount (<currency>) | Remarks | key), 6 columns each,
   listed in Settings › Sheets; RM tables of a sheet that counts as
   earnings/spending feed the Year End Summary. Managed by fincomp once listed.
+  Each has a category: the app groups Sheets by it, and "Investments" ones
+  get their own tab. Sheet and trip names are unique across years (an
+  import from another year adds the year to a clashing name).
 - `old_accounts.py`: an accounts workbook the user kept by hand (template
   layout, .xlsx; zipfile + xml, no openpyxl) copied into the new layout as
   hand-added rows with content-based "m-" keys, so re-importing adds nothing.

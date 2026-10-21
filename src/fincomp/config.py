@@ -74,6 +74,8 @@ class CustomSheet:
     year: int
     counts: str = ""  # "earnings", "spending" or "" (not counted)
     tables: list[CustomTable] = field(default_factory=list)
+    # What it's for, to group sheets in the app ("Chinese New Year", "Investments": its own tab).
+    category: str = ""
 
 
 def _date(v) -> date:

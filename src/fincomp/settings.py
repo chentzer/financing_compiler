@@ -41,7 +41,8 @@ HEADERS = {
     LISTS: ["Categories", "Importance"],
     REMOVED: ["Key", "Date", "Amount (RM)", "Statement"],
     REVIEWED: ["Key", "Date", "Amount (RM)", "Statement"],
-    SHEETS: ["Name", "Year", "Counts as (earnings / spending / blank)", "Tables (name / currency / column ; ...)"],
+    SHEETS: ["Name", "Year", "Counts as (earnings / spending / blank)", "Tables (name / currency / column ; ...)",
+             "Category"],
     LEDGER: Transaction.columns(),
 }
 SEP = " | "
@@ -117,7 +118,7 @@ def config_from_tabs(values: dict[str, list[list]], passwords: dict[str, str] | 
         counts = _s(r, 2).lower()
         if _s(r, 0):
             sheets.append(CustomSheet(_s(r, 0), year, counts if counts in ("earnings", "spending") else "",
-                                      decode_tables(_s(r, 3))))
+                                      decode_tables(_s(r, 3)), _s(r, 4)))
     if SHEETS in values:
         config.sheets = sheets
     if passwords is not None:
@@ -146,7 +147,7 @@ def tabs_from_config(config: Config) -> dict[str, list[list]]:
     lists = [[(config.categories + [""] * n)[i], (config.importance + [""] * n)[i]] for i in range(n)]
     from .custom import encode_tables
 
-    sheets = [[s.name, s.year, s.counts, encode_tables(s.tables)] for s in config.sheets]
+    sheets = [[s.name, s.year, s.counts, encode_tables(s.tables), s.category] for s in config.sheets]
     return {
         SHEETS: [HEADERS[SHEETS], *sheets],
         RULES: [HEADERS[RULES], *rules],

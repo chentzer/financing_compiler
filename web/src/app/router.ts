@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 /**
  * Hash routes, so the same build works on GitHub Pages and in Capacitor
  * without server rewrites:
- *   #/  #/upload  #/cards  #/month/2026-09  #/trips  #/trips/<name>  #/sheets  #/sheets/<name>  #/settings/rules
+ *   #/  #/upload  #/cards  #/month/2026-09  #/trips  #/trips/<name>  #/investments  #/sheets  #/sheets/<name>  #/settings/rules
  */
 export type Route =
   | { name: 'home' }
@@ -11,6 +11,7 @@ export type Route =
   | { name: 'cards' }
   | { name: 'month'; year?: number; month?: number }
   | { name: 'trips'; trip?: string }
+  | { name: 'investments'; sheet?: string }
   | { name: 'sheets'; sheet?: string }
   | { name: 'settings'; tab?: string }
 
@@ -27,6 +28,8 @@ export function parseRoute(hash: string): Route {
     }
     case 'trips':
       return { name: 'trips', trip: parts[1] ? decodeURIComponent(parts[1]) : undefined }
+    case 'investments':
+      return { name: 'investments', sheet: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case 'sheets':
       return { name: 'sheets', sheet: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case 'settings':
@@ -46,6 +49,8 @@ export function href(r: Route): string {
       return r.tab ? `#/settings/${r.tab}` : '#/settings'
     case 'trips':
       return r.trip ? `#/trips/${encodeURIComponent(r.trip)}` : '#/trips'
+    case 'investments':
+      return r.sheet ? `#/investments/${encodeURIComponent(r.sheet)}` : '#/investments'
     case 'sheets':
       return r.sheet ? `#/sheets/${encodeURIComponent(r.sheet)}` : '#/sheets'
     default:

@@ -392,6 +392,17 @@ def trips_from_workbook(data: bytes) -> list[dict]:
     return out
 
 
+def sheet_category(title: str) -> str:
+    """Investments get their own tab in the app; other sheets are grouped
+    by what they are, so each year's "CNY" / "Chinese New Year" sit together."""
+    low = title.lower()
+    if "invest" in low:
+        return "Investments"
+    if "cny" in low.split() or "chinese new year" in low or "ang pao" in low:
+        return "Chinese New Year"
+    return title.strip()
+
+
 def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict]:
     """Other tabs made of tables under a header row 2 like Date, Person,
     Amount (RM), Remarks (the 2023 "Chinese New Year" ang pao tab). Whether a
@@ -450,5 +461,5 @@ def sheets_from_workbook(data: bytes, skip: set[str] = frozenset()) -> list[dict
             counts = "earnings" if any(x in formulas[0] for x in refs) else \
                 "spending" if any(x in formulas[1] for x in refs) else ""
         out.append({"name": title, "year": _year(all_dates, years[0] if years else date.today().year),
-                    "counts": counts, "tables": tables})
+                    "counts": counts, "tables": tables, "category": sheet_category(title)})
     return out

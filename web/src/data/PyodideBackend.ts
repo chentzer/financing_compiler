@@ -20,6 +20,7 @@ import {
   type Card,
   type CardAnswer,
   type CustomSheet,
+  isInvestment,
   type SheetRow,
   type SheetTableRows,
   type Category,
@@ -61,8 +62,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
   'October', 'November', 'December']
 const SETTINGS_RANGES: Record<string, string> = {
   Rules: "'Rules'!A1:H", People: "'People'!A1:B", Trips: "'Trips'!A1:H", 'Own payees': "'Own payees'!A1:A",
-  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D", Sheets: "'Sheets'!A1:D",
+  Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D", Sheets: "'Sheets'!A1:E",
 }
+const SHEETS_HEADER = ['Name', 'Year', 'Counts as (earnings / spending / blank)', 'Tables (name / currency / column ; ...)', 'Category']
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
@@ -430,9 +432,10 @@ export class PyodideBackend implements Backend {
     const next = i >= 0 ? list.map((s, j) => (j === i ? sheet : s)) : [...list, sheet]
     // Settings › Sheets (a Settings sheet made before sheets existed gets the tab now).
     const id = await this.settingsBook()
-    await this.ensureSettingsTab(id, 'Sheets', ['Name', 'Year', 'Counts as (earnings / spending / blank)', 'Tables (name / currency / column ; ...)'])
+    await this.ensureSettingsTab(id, 'Sheets', SHEETS_HEADER)
     const rows = await py<unknown[][]>('sheets_rows', [next])
-    await this.g.clear(id, ["'Sheets'!A2:D"])
+    await this.g.write(id, [{ range: "'Sheets'!A1:E1", values: [SHEETS_HEADER] }], 'RAW') // older tabs: no Category yet
+    await this.g.clear(id, ["'Sheets'!A2:E"])
     if (rows.length) await this.g.write(id, [{ range: "'Sheets'!A2", values: rows }], 'RAW')
     await this.useSettings(true)
 
@@ -596,7 +599,7 @@ export class PyodideBackend implements Backend {
       await this.useSettings()
       type OldTrip = { name: string; currencies: { code: string; rate: number | null }[]; start: string; end: string;
         year: number; rm: object[]; paid: object[]; cash: Record<string, object[]>; received: object[] }
-      type OldSheet = { name: string; year: number; counts: CustomSheet['counts'];
+      type OldSheet = { name: string; year: number; counts: CustomSheet['counts']; category: string
         tables: (CustomSheet['tables'][number] & { rows: object[] })[] }
       // Months your statements already cover aren't copied (they'd be counted twice).
       const { ledger } = await this.readSettings()
@@ -623,39 +626,45 @@ export class PyodideBackend implements Backend {
       for (const trip of out.trips) {
         stepAt(trip.name)
         const st = await this.getSettings()
-        if (!st.trips.some((t) => t.name === trip.name)) {
-          st.trips.push({ name: trip.name, start: trip.start, end: trip.end,
+        // Names are unique across years: a second "Taiwan Trip" from another year gets its year added.
+        const name = st.trips.some((t) => t.name === trip.name && t.start.slice(0, 4) !== trip.start.slice(0, 4))
+          ? `${trip.name} ${trip.start.slice(0, 4)}` : trip.name
+        if (!st.trips.some((t) => t.name === name)) {
+          st.trips.push({ name, start: trip.start, end: trip.end,
             currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate ?? undefined })), match: [] })
           await this.saveSettings(st)
         }
-        added += await this.placeRowsCounted(trip.year, trip.rm, trip.name)
+        added += await this.placeRowsCounted(trip.year, trip.rm, name)
         total += trip.rm.length + trip.paid.length + trip.received.length +
           Object.values(trip.cash).reduce((n, rows) => n + rows.length, 0)
         const book = (await this.book(trip.year))!
-        const specs = await py<{ range: string }[]>('trip_extra_ranges', [trip.name])
+        const specs = await py<{ range: string }[]>('trip_extra_ranges', [name])
         const now = await this.g.read(book.id, specs.map((x) => x.range), 'UNFORMATTED_VALUE')
-        const data = await py<Plan['data']>('trip_extras', [trip.name, now, trip.paid, trip.cash, trip.received])
+        const data = await py<Plan['data']>('trip_extras', [name, now, trip.paid, trip.cash, trip.received])
         if (data.length) await this.g.write(book.id, data, 'USER_ENTERED')
         added += data.reduce((n, d) => n + d.values.length, 0)
-        parts.push(trip.name)
+        parts.push(name)
       }
 
       // Your own tabs (e.g. ang pao): a sheet in the Sheets section, then its rows.
       for (const sh of out.sheets) {
         stepAt(sh.name)
-        if (!(await this.listSheets()).some((s) => s.name === sh.name)) {
-          await this.saveSheet({ name: sh.name, year: sh.year, counts: sh.counts,
+        const list = await this.listSheets()
+        // Names are unique across years: 2025's "Chinese New Year" next to 2023's is "Chinese New Year 2025".
+        const name = list.some((s) => s.name === sh.name && s.year !== sh.year) ? `${sh.name} ${sh.year}` : sh.name
+        if (!list.some((s) => s.name === name)) {
+          await this.saveSheet({ name, year: sh.year, counts: sh.counts, category: sh.category,
             tables: sh.tables.map((t) => ({ name: t.name, currency: t.currency, label: t.label })) })
         }
-        const at = (await this.sheetBook(sh.name))!
+        const at = (await this.sheetBook(name))!
         const vals = await this.g.read(at.book.id, at.ranges, 'UNFORMATTED_VALUE')
         for (const [i, t] of sh.tables.entries()) {
           total += t.rows.length
-          const data = await py<Plan['data']>('custom_add_many', [sh.name, i, vals[i] ?? [], t.rows])
+          const data = await py<Plan['data']>('custom_add_many', [name, i, vals[i] ?? [], t.rows])
           if (data.length) await this.g.write(at.book.id, data, 'USER_ENTERED')
           added += data.reduce((n, d) => n + d.values.length, 0)
         }
-        parts.push(`${sh.name} (Sheets)`)
+        parts.push(`${name} (${isInvestment({ ...sh, name }) ? 'Investments' : 'Sheets'})`)
       }
       const left = out.skipped.length ? ` Left out (your statements cover them): ${out.skipped.join(', ')}.` : ''
       return {

@@ -60,10 +60,17 @@ export class MockBackend implements Backend {
   private sheets: CustomSheet[] = [{
     name: 'Chinese New Year', year: 2026, counts: 'earnings',
     tables: [{ name: 'Ang Pao (RM)', currency: 'RM', label: 'Person' }, { name: 'Ang Pao (SGD)', currency: 'SGD', label: 'Person' }],
+    category: 'Chinese New Year',
+  }, {
+    name: 'Unit Trusts', year: 2026, counts: '', category: 'Investments',
+    tables: [{ name: 'Bought', currency: 'RM', label: 'Fund' }, { name: 'Dividends', currency: 'RM', label: 'Fund' }],
   }]
   private sheetData = new Map<string, SheetRow[][]>([['Chinese New Year', [
     [{ key: 's1', date: '2026-02-17', item: 'Auntie Mei', amount: 50, remarks: '' }, { key: 's2', date: '2026-02-17', item: 'Uncle Bob', amount: 100, remarks: 'Penang' }],
     [{ key: 's3', date: '2026-02-20', item: 'SG cousin', amount: 10, remarks: '' }],
+  ]], ['Unit Trusts', [
+    [{ key: 'u1', date: '2026-03-02', item: 'Global Equity Fund', amount: 500, remarks: 'Monthly top-up' }],
+    [{ key: 'u2', date: '2026-06-30', item: 'Global Equity Fund', amount: 18.4, remarks: '' }],
   ]]])
 
   async listYears(): Promise<number[]> {

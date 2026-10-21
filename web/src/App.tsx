@@ -17,6 +17,7 @@ const TITLES: Record<Route['name'], string> = {
   cards: 'To Update',
   month: 'Month',
   trips: 'Trips',
+  investments: 'Investments',
   sheets: 'Sheets',
   settings: 'Settings',
 }
@@ -60,6 +61,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
     { route: { name: 'upload' }, label: 'Upload', icon: '⇪' },
     { route: { name: 'month' }, label: 'Month', icon: '▦' },
     { route: { name: 'trips' }, label: 'Trips', icon: '✈' },
+    { route: { name: 'investments' }, label: 'Invest', icon: '↗' },
     { route: { name: 'sheets' }, label: 'Sheets', icon: '▤' },
     { route: { name: 'settings' }, label: 'Settings', icon: '⚙' },
   ]
@@ -84,6 +86,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           {route.name === 'cards' && <Cards />}
           {route.name === 'month' && <Month year={route.year} month={route.month} />}
           {route.name === 'trips' && <Trips trip={route.trip} />}
+          {route.name === 'investments' && <Sheets sheet={route.sheet} section="investments" />}
           {route.name === 'sheets' && <Sheets sheet={route.sheet} />}
           {route.name === 'settings' && <Settings tab={route.tab} account={account} />}
         </div>

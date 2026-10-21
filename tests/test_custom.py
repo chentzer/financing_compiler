@@ -52,7 +52,7 @@ def test_settings_round_trip():
     cfg = Config(sheets=[ANG_PAO])
     tabs = S.tabs_from_config(cfg)
     assert tabs[S.SHEETS][1] == ["Chinese New Year", 2026, "earnings",
-                                 "Ang Pao (RM) / RM / Person ; Ang Pao (SGD) / SGD / Person"]
+                                 "Ang Pao (RM) / RM / Person ; Ang Pao (SGD) / SGD / Person", ""]
     assert S.config_from_tabs(tabs).sheets == [ANG_PAO]
     webapi.use_settings(tabs)
     assert webapi.sheets_list()[0]["tables"][1] == {"name": "Ang Pao (SGD)", "currency": "SGD", "label": "Person"}
@@ -147,6 +147,7 @@ def test_trip_extras_not_twice():
 def test_custom_tab_imported_counted_as_earnings():
     (sheet,) = sheets_from_workbook(workbook(), {"Japan Trip"})
     assert (sheet["name"], sheet["year"], sheet["counts"]) == ("Chinese New Year", 2023, "earnings")
+    assert sheet["category"] == "Chinese New Year"
     rm, sgd = sheet["tables"]
     assert (rm["name"], rm["currency"], rm["label"]) == ("Ang Pao (RM)", "RM", "Person")
     assert [(r["item"], r["amount"]) for r in rm["rows"]] == [("Auntie Mei", 50.0), ("Uncle Bob", 100.0)]
@@ -165,3 +166,11 @@ def test_trip_tabs_wide_enough_for_their_currencies():
     (add,) = [a for a in out["add"] if a["title"] == "Japan Trip"]
     # S.. for JPY, Z.. for SGD, then the received block: past Z
     assert add["cols"] == out["widths"]["Japan Trip"] == sheetplan.trip_cols(trip) > 26
+
+
+def test_sheet_category_from_old_tab_names():
+    from fincomp.old_accounts import sheet_category
+    assert [sheet_category(n) for n in ["Investments", "CNY", "Chinese New Year", "New Years"]] == [
+        "Investments", "Chinese New Year", "Chinese New Year", "New Years"]
+    cfg = Config(sheets=[CustomSheet("Stocks", 2025, "", [CustomTable("Buys")], "Investments")])
+    assert S.config_from_tabs(S.tabs_from_config(cfg)).sheets[0].category == "Investments"

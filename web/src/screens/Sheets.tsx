@@ -3,7 +3,7 @@ import { errorText, useData, useLoad } from '../app/context'
 import { shortDate } from '../app/format'
 import { go, href } from '../app/router'
 import { Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
-import type { CustomSheet, SheetRow, SheetTable, SheetTableRows } from '../data/Backend'
+import { INVESTMENTS, isInvestment, sheetCategory, type CustomSheet, type SheetRow, type SheetTable, type SheetTableRows } from '../data/Backend'
 
 const COUNTS: Record<CustomSheet['counts'], string> = {
   earnings: 'Counts as earnings',
@@ -17,40 +17,53 @@ function money(amount: number, currency: string): string {
   return currency.toUpperCase() === 'RM' || currency.toUpperCase() === 'MYR' ? `RM ${n}` : `${n} ${currency}`
 }
 
-/** Your own sheets: tabs like "Chinese New Year" made of tables you define. */
-export function Sheets({ sheet }: { sheet?: string }) {
-  return sheet ? <SheetView name={sheet} /> : <SheetList />
+type Section = 'sheets' | 'investments'
+
+/** Your own sheets: tabs like "Chinese New Year" made of tables you define. Sheets in the
+ * Investments category are on their own tab (section "investments"). */
+export function Sheets({ sheet, section = 'sheets' }: { sheet?: string; section?: Section }) {
+  return sheet ? <SheetView name={sheet} section={section} /> : <SheetList section={section} />
 }
 
-function SheetList() {
+function SheetList({ section }: { section: Section }) {
   const load = useLoad((b) => b.listSheets())
   const [adding, setAdding] = useState(false)
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
-  const years = [...new Set(load.data.map((s) => s.year))].sort((a, b) => b - a)
+  const invest = section === 'investments'
+  const mine = load.data.filter((s) => isInvestment(s) === invest)
+  // Grouped by category (e.g. every year's Chinese New Year together), newest year first.
+  const groups = [...new Set(mine.map(sheetCategory))].sort((a, b) => a.localeCompare(b))
 
   return (
     <div className="stack">
       <p className="muted">
-        Sheets of your own, next to the months in that year's spreadsheet: ang pao, a side business, savings for
-        something. Each has one or more tables (Date, a name column, Amount, Remarks), in RM or another currency.
+        {invest
+          ? 'Your investment sheets: what you put in, took out or earned, in tables of your own. Any sheet in the Investments category shows here.'
+          : "Sheets of your own, next to the months in that year's spreadsheet: ang pao, a side business, savings for something. Each has one or more tables (Date, a name column, Amount, Remarks), in RM or another currency."}
       </p>
       <div className="btn-row">
         <button className="btn primary" onClick={() => setAdding(true)}>
-          + New sheet
+          {invest ? '+ New investment sheet' : '+ New sheet'}
         </button>
       </div>
-      {load.data.length === 0 && <Empty title="No sheets yet">Make one for anything that isn't a month or a trip.</Empty>}
-      {years.map((y) => (
-        <section key={y} className="card flush">
-          <h3 className="list-title">{y}</h3>
+      {mine.length === 0 &&
+        (invest ? (
+          <Empty title="No investment sheets yet">Make one, or set a sheet's category to Investments.</Empty>
+        ) : (
+          <Empty title="No sheets yet">Make one for anything that isn't a month or a trip.</Empty>
+        ))}
+      {groups.map((g) => (
+        <section key={g} className="card flush">
+          <h3 className="list-title">{invest && groups.length === 1 ? 'Sheets' : g}</h3>
           <ul className="rows">
-            {load.data!.filter((s) => s.year === y).map((s) => (
+            {mine.filter((s) => sheetCategory(s) === g).sort((a, b) => b.year - a.year || a.name.localeCompare(b.name)).map((s) => (
               <li key={s.name}>
-                <a className="row" href={href({ name: 'sheets', sheet: s.name })}>
+                <a className="row" href={href({ name: section, sheet: s.name })}>
                   <span className="row-main">
                     <span className="row-item">{s.name}</span>
                     <span className="row-sub">
+                      <span>{s.year}</span>
                       <span>{s.tables.map((t) => t.name).join(' · ') || 'No tables'}</span>
                       <span>{COUNTS[s.counts]}</span>
                     </span>
@@ -64,12 +77,12 @@ function SheetList() {
           </ul>
         </section>
       ))}
-      {adding && <SheetForm existing={load.data} onClose={() => setAdding(false)} />}
+      {adding && <SheetForm existing={load.data} section={section} onClose={() => setAdding(false)} />}
     </div>
   )
 }
 
-function SheetView({ name }: { name: string }) {
+function SheetView({ name, section }: { name: string; section: Section }) {
   const sheets = useLoad((b) => b.listSheets())
   const load = useLoad((b) => b.sheetRows(name), [name])
   const [editing, setEditing] = useState(false)
@@ -78,20 +91,20 @@ function SheetView({ name }: { name: string }) {
 
   if (load.error || sheets.error) return <ErrorBox message={(load.error ?? sheets.error)!} retry={load.reload} />
   if (!load.data || !sheets.data) return <Loading />
-  if (!sheet) return <Empty title="Sheet not found"><a className="btn" href={href({ name: 'sheets' })}>All sheets</a></Empty>
+  if (!sheet) return <Empty title="Sheet not found"><a className="btn" href={href({ name: section })}>All sheets</a></Empty>
 
   return (
     <div className="stack">
       <div className="btn-row">
-        <a className="btn ghost" href={href({ name: 'sheets' })}>
-          ‹ All sheets
+        <a className="btn ghost" href={href({ name: section })}>
+          ‹ {section === 'investments' ? 'All investments' : 'All sheets'}
         </a>
         <button className="btn push-left-auto" onClick={() => setEditing(true)}>
           Edit sheet
         </button>
       </div>
       <h2 className="grow">
-        {sheet.name} <span className="muted small">{sheet.year} · {COUNTS[sheet.counts]}</span>
+        {sheet.name} <span className="muted small">{sheet.year} · {sheetCategory(sheet)} · {COUNTS[sheet.counts]}</span>
       </h2>
       <div className="lists-pair">
         {load.data.map((t) => (
@@ -126,17 +139,21 @@ function SheetView({ name }: { name: string }) {
           </section>
         ))}
       </div>
-      {editing && <SheetForm sheet={sheet} existing={sheets.data} onClose={() => setEditing(false)} />}
+      {editing && <SheetForm sheet={sheet} existing={sheets.data} section={section} onClose={() => setEditing(false)} />}
       {row && <RowForm sheet={sheet.name} table={row.table} row={row.row} onClose={() => setRow(undefined)} />}
     </div>
   )
 }
 
-function SheetForm({ sheet, existing, onClose }: { sheet?: CustomSheet; existing: CustomSheet[]; onClose(): void }) {
+function SheetForm({ sheet, existing, section, onClose }: { sheet?: CustomSheet; existing: CustomSheet[]; section: Section; onClose(): void }) {
   const { backend, changed, toast } = useData()
   const [s, setS] = useState<CustomSheet>(
-    sheet ?? { name: '', year: new Date().getFullYear(), counts: '', tables: [{ name: 'Table 1', currency: 'RM', label: 'Item' }] },
+    sheet ? { ...sheet, category: sheetCategory(sheet) } : {
+      name: '', year: new Date().getFullYear(), counts: '', category: section === 'investments' ? INVESTMENTS : '',
+      tables: [{ name: 'Table 1', currency: 'RM', label: 'Item' }],
+    },
   )
+  const categories = [...new Set([INVESTMENTS, ...existing.map(sheetCategory)])].sort()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const kept = sheet?.tables.length ?? 0 // existing tables can be renamed, not removed (their rows stay in place)
@@ -152,12 +169,14 @@ function SheetForm({ sheet, existing, onClose }: { sheet?: CustomSheet; existing
     setBusy(true)
     setError(undefined)
     try {
-      const clean = { ...s, name: s.name.trim(), tables: s.tables.map((t) => ({ name: t.name.trim(), currency: t.currency.trim() || 'RM', label: t.label.trim() || 'Item' })) }
+      const clean = { ...s, name: s.name.trim(), category: (s.category ?? '').trim() || s.name.trim(), tables: s.tables.map((t) => ({ name: t.name.trim(), currency: t.currency.trim() || 'RM', label: t.label.trim() || 'Item' })) }
       await backend.saveSheet(clean, sheet?.name)
       toast(sheet ? 'Sheet saved' : `Made "${clean.name}"`)
       changed()
       onClose()
-      if (!sheet || sheet.name !== clean.name) go({ name: 'sheets', sheet: clean.name })
+      if (!sheet || sheet.name !== clean.name || isInvestment(clean) !== isInvestment(sheet)) {
+        go({ name: isInvestment(clean) ? 'investments' : 'sheets', sheet: clean.name })
+      }
     } catch (e) {
       setError(errorText(e))
       setBusy(false)
@@ -175,6 +194,13 @@ function SheetForm({ sheet, existing, onClose }: { sheet?: CustomSheet; existing
             <input type="number" value={s.year} disabled={!!sheet} onChange={(e) => setS({ ...s, year: Number(e.target.value) })} />
           </Field>
         </div>
+        <Field label="Category" hint="Groups your sheets, e.g. every year's Chinese New Year together. Investments: on the Investments tab.">
+          <input value={s.category ?? ''} onChange={(e) => setS({ ...s, category: e.target.value })} list="sheet-categories"
+            placeholder={s.name.trim() || 'e.g. Chinese New Year'} />
+          <datalist id="sheet-categories">
+            {categories.map((c) => <option key={c} value={c} />)}
+          </datalist>
+        </Field>
         <Field label="In the Year End Summary" hint="Only RM tables are added">
           <select value={s.counts} onChange={(e) => setS({ ...s, counts: e.target.value as CustomSheet['counts'] })}>
             <option value="">Not counted</option>

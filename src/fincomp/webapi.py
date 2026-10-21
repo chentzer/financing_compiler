@@ -467,8 +467,9 @@ def sheets_rows(sheets: list[dict]) -> list[list]:
     for s in sheets:
         tables = [CustomTable(t["name"].strip(), (t.get("currency") or "RM").strip(), (t.get("label") or "Item").strip())
                   for t in s.get("tables", []) if t.get("name", "").strip()]
-        sheet = CustomSheet(s["name"].strip(), int(s["year"]), s.get("counts", ""), tables)
-        out.append([sheet.name, sheet.year, sheet.counts, encode_tables(sheet.tables)])
+        sheet = CustomSheet(s["name"].strip(), int(s["year"]), s.get("counts", ""), tables,
+                            (s.get("category") or "").strip())
+        out.append([sheet.name, sheet.year, sheet.counts, encode_tables(sheet.tables), sheet.category])
     return out
 
 
