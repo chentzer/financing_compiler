@@ -14,7 +14,9 @@ const CURRENCIES = ['RM', 'SGD', 'JPY', 'USD', 'THB', 'KRW', 'TWD', 'HKD', 'CNY'
 
 /** "Chinese New Year 2026" under Chinese New Year adds nothing: show the tables instead. */
 function sameAsGroup(name: string, group: string): boolean {
-  return sheetCategory({ name }) === group
+  const bare = name.replace(/\s*\(?(19|20)\d{2}\)?\s*$/, '').trim().toLowerCase()
+  // "CNY", "New Years", "Chinese New Year 2026" all just say Chinese New Year; "Unit Trusts" says more than Investments.
+  return bare === group.toLowerCase() || (group === 'Chinese New Year' && sheetCategory({ name }) === group)
 }
 
 function money(amount: number, currency: string): string {

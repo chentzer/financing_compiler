@@ -11,6 +11,8 @@ import { Sheets } from './screens/Sheets'
 import { Trips } from './screens/Trips'
 import { Year } from './screens/Year'
 import { listenForShares } from './app/share'
+import { useStored } from './app/store'
+import type { UploadProgress } from './data/Backend'
 import { Upload } from './screens/Upload'
 
 const TITLES: Record<Route['name'], string> = {
@@ -59,17 +61,28 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
   const cards = useLoad((b) => b.listCards())
   const open = cards.data?.length ?? 0
 
-  const nav: { route: Route; label: string; icon: string; badge?: number }[] = [
-    { route: { name: 'home' }, label: 'Home', icon: '⌂' },
-    { route: { name: 'cards' }, label: 'To Update', icon: '✎', badge: open },
-    { route: { name: 'upload' }, label: 'Upload', icon: '⇪' },
-    { route: { name: 'month' }, label: 'Month', icon: '▦' },
-    { route: { name: 'year' }, label: 'Year', icon: '▥' },
-    { route: { name: 'trips' }, label: 'Trips', icon: '✈' },
-    { route: { name: 'investments' }, label: 'Invest', icon: '↗' },
-    { route: { name: 'sheets' }, label: 'Sheets', icon: '▤' },
-    { route: { name: 'settings' }, label: 'Settings', icon: '⚙' },
+  // Upload's progress shows on its tab, wherever you are.
+  const [busy] = useStored('upload.busy', false)
+  const [progress] = useStored<UploadProgress | undefined>('upload.progress', undefined)
+
+  // Each hub reopens on the sub-tab you used last (e.g. Accounts → Year).
+  const hub = HUB_OF[route.name]
+  const [lastAccounts, setLastAccounts] = useStored<Route>('nav.accounts', { name: 'month' })
+  const [lastSheets, setLastSheets] = useStored<Route>('nav.sheets', { name: 'investments' })
+  useEffect(() => {
+    if (hub === 'accounts') setLastAccounts(route)
+    if (hub === 'sheets') setLastSheets(route)
+  }, [hub, route, setLastAccounts, setLastSheets])
+
+  // The rule of 5: five destinations at the bottom, the action (Upload) in the middle.
+  const tabs: Tab[] = [
+    { key: 'home', route: { name: 'home' }, label: 'Home', icon: '⌂' },
+    { key: 'accounts', route: lastAccounts, label: 'Accounts', icon: '▦' },
+    { key: 'upload', route: { name: 'upload' }, label: busy && progress ? `${Math.round(progress.fraction * 100)}%` : 'Upload', icon: '⇪', primary: true, working: busy },
+    { key: 'cards', route: { name: 'cards' }, label: 'To Update', icon: '✎', badge: open },
+    { key: 'sheets', route: lastSheets, label: 'Sheets', icon: '▤' },
   ]
+  const subs = hub === 'accounts' || hub === 'sheets' ? SUBS[hub] : null
 
   return (
     <div className="shell">
@@ -78,12 +91,46 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           <img src="./icon.svg" alt="" width={28} height={28} />
           FinMerge
         </div>
-        <NavLinks items={nav} current={route.name} />
+        {/* Wide screens have room: every place is in view, sub-pages under their hub. */}
+        <nav className="side-nav" aria-label="Main">
+          {tabs.map((t) => (
+            <div key={t.key} className="side-group">
+              <NavLink tab={t} on={hub === t.key && !(t.key in SUBS)} />
+              {t.key in SUBS &&
+                SUBS[t.key as keyof typeof SUBS].map((s) => (
+                  <a key={s.label} href={href(s.route)} className={route.name === s.route.name ? 'nav sub on' : 'nav sub'}
+                    aria-current={route.name === s.route.name ? 'page' : undefined}>
+                    <span className="nav-label">{s.label}</span>
+                  </a>
+                ))}
+            </div>
+          ))}
+          <a href={href({ name: 'settings' })} className={route.name === 'settings' ? 'nav on push-down' : 'nav push-down'}>
+            <span className="nav-icon" aria-hidden>⚙</span>
+            <span className="nav-label">Settings</span>
+          </a>
+        </nav>
       </aside>
       <main className="main">
         <header className="topbar">
-          <h1>{TITLES[route.name]}</h1>
-          {demo && <span className="pill warn">Demo data</span>}
+          <div className="topbar-row">
+            <h1>{TITLES[route.name]}</h1>
+            {demo && <span className="pill warn">Demo data</span>}
+            {/* Settings is rarely needed: one tap away up here, not a bottom tab. */}
+            <a className={route.name === 'settings' ? 'icon-btn settings-link on' : 'icon-btn settings-link'} href={href({ name: 'settings' })} aria-label="Settings">
+              ⚙
+            </a>
+          </div>
+          {subs && (
+            <nav className="subtabs" aria-label={hub === 'accounts' ? 'Accounts' : 'Sheets'}>
+              {subs.map((s) => (
+                <a key={s.label} href={href(s.route)} className={route.name === s.route.name ? 'subtab on' : 'subtab'}
+                  aria-current={route.name === s.route.name ? 'page' : undefined}>
+                  {s.label}
+                </a>
+              ))}
+            </nav>
+          )}
         </header>
         <div className={route.name === 'month' ? 'content wide' : 'content'}>
           {route.name === 'home' && <Home />}
@@ -98,36 +145,54 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
         </div>
       </main>
       <nav className="bottom-nav" aria-label="Main">
-        <NavLinks items={nav} current={route.name} />
+        {tabs.map((t) => (
+          <NavLink key={t.key} tab={t} on={hub === t.key} />
+        ))}
       </nav>
     </div>
   )
 }
 
-function NavLinks({
-  items,
-  current,
-}: {
-  items: { route: Route; label: string; icon: string; badge?: number }[]
-  current: Route['name']
-}) {
+type Hub = 'home' | 'accounts' | 'upload' | 'cards' | 'sheets'
+interface Tab {
+  key: Hub
+  route: Route
+  label: string
+  icon: string
+  badge?: number
+  primary?: boolean
+  working?: boolean
+}
+
+/** Which bottom tab a page belongs to (Settings: none, it's in the header). */
+const HUB_OF: Record<Route['name'], Hub | null> = {
+  home: 'home', month: 'accounts', year: 'accounts', trips: 'accounts', upload: 'upload', cards: 'cards',
+  investments: 'sheets', sheets: 'sheets', settings: null,
+}
+
+/** The pages inside a hub, as tabs across its top: all visible, nothing behind "More". */
+const SUBS: Record<'accounts' | 'sheets', { route: Route; label: string }[]> = {
+  accounts: [
+    { route: { name: 'month' }, label: 'Month' },
+    { route: { name: 'year' }, label: 'Year' },
+    { route: { name: 'trips' }, label: 'Trips' },
+  ],
+  sheets: [
+    { route: { name: 'investments' }, label: 'Investments' },
+    { route: { name: 'sheets' }, label: 'Other sheets' },
+  ],
+}
+
+function NavLink({ tab, on }: { tab: Tab; on: boolean }) {
+  const cls = ['nav', on && 'on', tab.primary && 'primary', tab.working && 'working'].filter(Boolean).join(' ')
   return (
-    <>
-      {items.map((n) => (
-        <a
-          key={n.route.name}
-          href={href(n.route)}
-          className={n.route.name === current ? 'nav on' : 'nav'}
-          aria-current={n.route.name === current ? 'page' : undefined}
-        >
-          <span className="nav-icon" aria-hidden>
-            {n.icon}
-          </span>
-          <span className="nav-label">{n.label}</span>
-          {!!n.badge && <span className="badge">{n.badge}</span>}
-        </a>
-      ))}
-    </>
+    <a href={href(tab.route)} className={cls} aria-current={on ? 'page' : undefined}>
+      <span className="nav-icon" aria-hidden>
+        {tab.icon}
+      </span>
+      <span className="nav-label">{tab.label}</span>
+      {!!tab.badge && <span className="badge">{tab.badge > 99 ? '99+' : tab.badge}</span>}
+    </a>
   )
 }
 

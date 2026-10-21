@@ -139,8 +139,52 @@ a:focus-visible {
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(8px);
 }
+.topbar {
+  flex-direction: column;
+  align-items: stretch;
+}
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .topbar h1 {
   font-size: 1.35rem;
+}
+.settings-link {
+  margin-left: auto;
+  font-size: 1.25rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+.settings-link.on {
+  color: var(--accent);
+}
+/* A hub's pages (Month / Year / Trips): all in view across the top. */
+.subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  overflow-x: auto;
+}
+.subtab {
+  flex: 1;
+  min-width: max-content;
+  padding: 7px 12px;
+  border-radius: 9px;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.subtab.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
 }
 .content {
   padding: 4px 16px calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);
@@ -155,7 +199,7 @@ a:focus-visible {
   inset: auto 0 0 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
@@ -180,7 +224,34 @@ a:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
+}
+/* Upload, the main action: raised in the middle, where the thumb rests. */
+.bottom-nav .nav.primary .nav-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-top: -22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);
+  font-size: 1.35rem;
+}
+.bottom-nav .nav.primary.working .nav-icon {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bottom-nav .nav.primary.working .nav-icon {
+    animation: none;
+  }
 }
 .nav-icon {
   position: relative;
@@ -249,6 +320,27 @@ a:focus-visible {
   }
   .bottom-nav {
     display: none;
+  }
+  /* The side nav lists every page; no need for these twice. */
+  .topbar .subtabs,
+  .topbar .settings-link {
+    display: none;
+  }
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+  }
+  .side .nav.sub {
+    padding: 7px 12px 7px 48px;
+    font-size: 0.9rem;
+  }
+  .side .nav.primary .nav-icon {
+    color: var(--accent);
+  }
+  .side .push-down {
+    margin-top: auto;
   }
   .topbar {
     padding: 22px 32px 14px;
@@ -1124,4 +1216,40 @@ button.row:hover {
 }
 .danger-box {
   border-color: var(--neg);
+}
+
+/* ---------- thumb zone (phones): the main action of a screen within reach ---------- */
+@media (max-width: 899px) {
+  /* Month: "+ Add transaction" floats bottom-right, above the tab bar. */
+  .fab-mobile {
+    position: fixed;
+    right: 16px;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
+    z-index: 9;
+    border-radius: 999px;
+    padding: 14px 18px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: transparent;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  /* To Update: the answer buttons stay at the bottom while the card scrolls. */
+  .uc-actions {
+    position: sticky;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px);
+    z-index: 4;
+    padding: 10px;
+    margin: 0 -10px;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 -6px 16px color-mix(in srgb, var(--bg) 70%, transparent);
+  }
+  /* Upload: Choose / Upload at the bottom. */
+  .upload-actions {
+    position: sticky;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px);
+    z-index: 4;
+    padding: 10px 0;
+    background: var(--surface);
+  }
 }

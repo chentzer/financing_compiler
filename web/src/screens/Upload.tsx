@@ -120,7 +120,7 @@ function UploadInner() {
             e.target.value = ''
           }}
         />
-        <div className="btn-row">
+        <div className="btn-row upload-actions">
           <button className="btn" onClick={() => input.current?.click()} disabled={busy}>
             {picked.length ? 'Add more files' : 'Choose files'}
           </button>

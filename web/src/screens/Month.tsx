@@ -68,7 +68,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
       <Summary s={summary} />
       <div className="stack">
         <div className="btn-row end">
-          <button className="btn" onClick={() => setAdding(true)}>
+          <button className="btn fab-mobile" onClick={() => setAdding(true)} aria-label="Add transaction">
             + Add transaction
           </button>
         </div>
