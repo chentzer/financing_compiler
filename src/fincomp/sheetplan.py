@@ -873,13 +873,15 @@ def paid_row(values: list[list], tab_title: str, fields: dict) -> list[dict]:
     return [{"range": f"{quote(tab_title)}!{PAID_COLS[0]}{row}:{PAID_KEY}{row}", "values": [[cell(v) for v in vals]]}]
 
 
-def trip_refresh(sheet_ids: dict[str, int], config: Config) -> tuple[list[dict], list[dict]]:
+def trip_refresh(sheet_ids: dict[str, int], config: Config,
+                 names: set[str] | None = None) -> tuple[list[dict], list[dict]]:
     """After trips change in Settings: each existing trip tab's headings,
-    summary (currency, rate) and formats. Rows are never touched."""
+    summary (currency, rate) and formats. Rows are never touched. `names`:
+    only these trips (the ones you changed)."""
     data: list[dict] = []
     requests: list[dict] = []
     for trip in config.trips:
-        if trip.name not in sheet_ids:
+        if trip.name not in sheet_ids or (names is not None and trip.name not in names):
             continue
         q = quote(trip.name)
         data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in trip_layout(trip, config, True).items()]

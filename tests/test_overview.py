@@ -48,3 +48,16 @@ def test_trip_detail_blocks():
     assert (idr["code"], idr["rate"], idr["spent"], idr["rm"]) == ("IDR", 0.00026, 500000, 130)
     assert [r["item"] for r in idr["rows"]] == ["Car Rental"]
     assert out["received"][0]["currency"] == "IDR"
+
+
+def test_trip_refresh_only_the_changed_trips():
+    from fincomp import sheetplan
+    from fincomp.config import Config
+    bali = Trip("Bali Trip", date(2026, 6, 20), date(2026, 6, 23), currency="IDR", rate=0.00026)
+    penang = Trip("Penang Trip", date(2026, 9, 15), date(2026, 9, 17))
+    cfg = Config(trips=[bali, penang])
+    ids = {"Bali Trip": 1, "Penang Trip": 2}
+    data, _ = sheetplan.trip_refresh(ids, cfg, {"Penang Trip"})
+    assert data and all(d["range"].startswith("'Penang Trip'!") for d in data)
+    everything, _ = sheetplan.trip_refresh(ids, cfg)
+    assert any(d["range"].startswith("'Bali Trip'!") for d in everything)

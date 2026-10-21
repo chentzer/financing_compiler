@@ -33,6 +33,7 @@ import {
   type RowEdit,
   type Rule,
   type Settings,
+  type Trip,
   type TripDetail,
   type TripTotal,
   type UploadFile,
@@ -228,12 +229,13 @@ export class PyodideBackend implements Backend {
     return { tabs, ids: Object.fromEntries(tabs.map((t) => [t.title, t.sheetId])) }
   }
 
-  private async readSettings(): Promise<{ id: string; values: Record<string, Values>; ledger: Values }> {
+  /** The Settings tabs, and the Ledger (every parsed transaction: large) only when asked. */
+  private async readSettings(withLedger = true): Promise<{ id: string; values: Record<string, Values>; ledger: Values }> {
     const id = await this.settingsBook()
     const names = await this.settingsTabs(id)
-    const got = await this.g.read(id, [...names.map((n) => SETTINGS_RANGES[n]), LEDGER_RANGE], 'UNFORMATTED_VALUE')
+    const got = await this.g.read(id, [...names.map((n) => SETTINGS_RANGES[n]), ...(withLedger ? [LEDGER_RANGE] : [])], 'UNFORMATTED_VALUE')
     const values = Object.fromEntries(names.map((n, i) => [n, got[i]]))
-    return { id, values, ledger: got[names.length] }
+    return { id, values, ledger: withLedger ? got[names.length] : [] }
   }
 
   // ---- months -------------------------------------------------------------------------
@@ -925,9 +927,9 @@ export class PyodideBackend implements Backend {
   // ---- settings & passwords -------------------------------------------------------------
 
   async getSettings(): Promise<Settings> {
-    const { values } = await this.readSettings()
+    const { values } = await this.readSettings(false)
     const body = (tab: string) => (values[tab] ?? []).slice(1).filter((r) => r.some((c) => s(c)))
-    return {
+    const st: Settings = {
       rules: body('Rules').map((r): Rule => ({
         match: s(r[0]), category: s(r[1]) as Category | '', importance: s(r[2]) as Importance | '',
         item: s(r[3]) || undefined, trip: s(r[4]) || undefined, skip: /^(true|yes|y|1)$/i.test(s(r[5])) || undefined,
@@ -943,6 +945,8 @@ export class PyodideBackend implements Backend {
       })),
       ownPayees: body('Own payees').map((r) => s(r[0])),
     }
+    this.savedTrips = structuredClone(st.trips)
+    return st
   }
 
   async saveSettings(st: Settings): Promise<void> {
@@ -958,19 +962,29 @@ export class PyodideBackend implements Backend {
     await this.g.clear(id, Object.keys(tabs).map((t) => SETTINGS_RANGES[t].replace('A1:', 'A2:')))
     await this.g.write(id, Object.entries(tabs).filter(([, rows]) => rows.length).map(([t, rows]) => ({ range: `${quote(t)}!A2`, values: rows })), 'RAW')
 
-    // Trips: existing trip tabs pick up a new currency / rate, and a new trip gets its tab now.
+    // Trips you changed or added: their tab picks up a new currency / rate, or is made now.
+    // Untouched trips (most of them) cost nothing, so a save is a few calls, not one per trip.
+    const key = (t: Trip) => JSON.stringify([t.name, t.start, t.end, t.currencies.map((c) => [c.code, c.rate ?? null]), t.match, t.link ?? ''])
+    const before = new Set((this.savedTrips ?? []).map(key))
+    const changed = st.trips.filter((t) => !this.savedTrips || !before.has(key(t)))
+    this.savedTrips = structuredClone(st.trips)
     await this.useSettings(true)
-    for (const b of await this.yearBooks()) {
-      const { ids } = await this.ids(b.id)
-      const plan = await py<{ data: Plan['data']; requests: object[] }>('trip_refresh', [ids])
-      await this.run(b.id, { clear: [], ...plan })
-    }
-    for (const t of st.trips) {
-      const year = Number(t.start.slice(0, 4))
+    if (!changed.length) return
+    const years = [...new Set(changed.map((t) => Number(t.start.slice(0, 4))))]
+    for (const year of years) {
+      const mine = changed.filter((t) => Number(t.start.slice(0, 4)) === year)
       const book = await this.book(year)
-      if (!book || !(await this.g.tabs(book.id)).some((x) => x.title === t.name)) await this.placeRows(year, [], t.name)
+      const { ids } = book ? await this.ids(book.id) : { ids: {} as Record<string, number> }
+      if (book) {
+        const plan = await py<{ data: Plan['data']; requests: object[] }>('trip_refresh', [ids, mine.map((t) => t.name)])
+        await this.run(book.id, { clear: [], ...plan })
+      }
+      for (const t of mine) if (!(t.name in ids)) await this.placeRows(year, [], t.name)
     }
   }
+
+  /** Trips as last read or saved, to tell which ones a save changes. */
+  private savedTrips?: Trip[]
 
   // ---- passwords: encrypted with the PIN (vault.ts) -----------------------------------
 

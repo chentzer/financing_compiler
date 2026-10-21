@@ -320,8 +320,9 @@ def paid_row(values: list[list], trip_title: str, fields: dict) -> list[dict]:
     return sheetplan.paid_row(values or [], trip_title, fields)
 
 
-def trip_refresh(sheet_ids: dict) -> dict:
-    data, requests = sheetplan.trip_refresh(_ids(sheet_ids), _state["config"])
+def trip_refresh(sheet_ids: dict, names: list[str] | None = None) -> dict:
+    data, requests = sheetplan.trip_refresh(_ids(sheet_ids), _state["config"],
+                                            None if names is None else set(names))
     return {"data": data, "requests": requests}
 
 
