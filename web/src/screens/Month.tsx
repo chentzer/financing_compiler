@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
-import { dayMonth, monthName, rm, signedRm } from '../app/format'
+import { dayMonth, monthName, newestFirst, rm, signedRm } from '../app/format'
 import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
@@ -143,7 +143,7 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
         <p className="muted pad">None.</p>
       ) : (
         <ul className="rows">
-          {rows.map((r) => (
+          {newestFirst(rows).map((r) => (
             <li key={r.key}>
               <button className="row" onClick={() => onTap(r)}>
                 <span className="row-date">{dayMonth(r.date)}</span>

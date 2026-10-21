@@ -22,3 +22,11 @@ export function dayMonth(iso: string): string {
   const [, m, d] = iso.split('-').map(Number)
   return `${d} ${MONTHS[m - 1].slice(0, 3)}`
 }
+
+/** Newest first; rows without a date go last, otherwise the order is kept. */
+export function newestFirst<T extends { date?: string }>(rows: T[]): T[] {
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (b.r.date ?? '').localeCompare(a.r.date ?? '') || a.i - b.i)
+    .map((x) => x.r)
+}

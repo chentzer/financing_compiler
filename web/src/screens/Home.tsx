@@ -108,7 +108,7 @@ function YearCards({ years }: { years: YearSummary[] }) {
             </tr>
           </thead>
           <tbody>
-            {years.map((y) => (
+            {[...years].reverse().map((y) => (
               <tr key={y.year}>
                 <td>{y.year}</td>
                 <td>{num(y.earnings)}</td>
@@ -160,7 +160,7 @@ function MonthBars({ months }: { months: YearSummary['months'] }) {
   const max = Math.max(1, ...months.map((m) => Math.abs(m.final)))
   return (
     <ul className="bars">
-      {months.map((m) => (
+      {[...months].reverse().map((m) => (
         <li key={m.month} className={m.final === 0 ? 'zero' : ''}>
           <span className="bar-name">{SHORT[m.month - 1]}</span>
           <span className="bar-track">

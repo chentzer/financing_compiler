@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
-import { shortDate } from '../app/format'
+import { newestFirst, shortDate } from '../app/format'
 import { go, href } from '../app/router'
 import { Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import { INVESTMENTS, isInvestment, sheetCategory, type CustomSheet, type SheetRow, type SheetTable, type SheetTableRows } from '../data/Backend'
@@ -117,7 +117,7 @@ function SheetView({ name, section }: { name: string; section: Section }) {
               <p className="muted pad">None yet.</p>
             ) : (
               <ul className="rows">
-                {t.rows.map((r) => (
+                {newestFirst(t.rows).map((r) => (
                   <li key={r.key || `${r.date}-${r.item}`}>
                     <button className="row" onClick={() => r.key && setRow({ table: t, row: r })} disabled={!r.key}>
                       <span className="row-date">{r.date ? shortDate(r.date) : ''}</span>

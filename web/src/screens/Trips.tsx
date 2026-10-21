@@ -1,5 +1,5 @@
 import { useLoad } from '../app/context'
-import { dayMonth, rm, shortDate } from '../app/format'
+import { dayMonth, newestFirst, rm, shortDate } from '../app/format'
 import { href } from '../app/router'
 import type { TripDetail, TripRow } from '../data/Backend'
 import { ErrorBox, Loading } from '../components/ui'
@@ -129,7 +129,7 @@ function TripRows({ title, rows, money }: { title: string; rows: TripRow[]; mone
         <p className="muted pad">None.</p>
       ) : (
         <ul className="rows">
-          {rows.map((r, i) => (
+          {newestFirst(rows).map((r, i) => (
             <li key={i}>
               <div className="row">
                 <span className="row-date">{r.date ? dayMonth(r.date) : ''}</span>
