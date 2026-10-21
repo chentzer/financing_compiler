@@ -1101,3 +1101,7 @@ button.row:hover {
 .push-left-auto {
   margin-left: auto;
 }
+
+.stack.tight {
+  gap: 8px;
+}

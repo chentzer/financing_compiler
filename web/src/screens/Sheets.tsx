@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { newestFirst, shortDate } from '../app/format'
 import { go, href } from '../app/router'
-import { Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
+import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import { INVESTMENTS, isInvestment, sheetCategory, type CustomSheet, type SheetRow, type SheetTable, type SheetTableRows } from '../data/Backend'
 
 const COUNTS: Record<CustomSheet['counts'], string> = {
@@ -18,6 +18,28 @@ function money(amount: number, currency: string): string {
 }
 
 type Section = 'sheets' | 'investments'
+
+/** On: the sheet's RM tables are added to the year's earnings or spending (Year End Summary, Home). */
+function CountsToggle({ value, onChange, disabled }: { value: CustomSheet['counts']; onChange(v: CustomSheet['counts']): void; disabled?: boolean }) {
+  return (
+    <div className="stack tight">
+      <label className="toggle">
+        <input type="checkbox" checked={value !== ''} disabled={disabled}
+          onChange={(e) => onChange(e.target.checked ? 'earnings' : '')} />
+        <span className="switch" aria-hidden />
+        <span>
+          Count in the year's totals
+          <span className="muted small"> · {value ? 'its RM tables are added to the Year End Summary and Home' : 'kept for reference only'}</span>
+        </span>
+      </label>
+      {value !== '' && (
+        <Chips<'earnings' | 'spending'> label="Counts as" options={['earnings', 'spending']} value={value}
+          names={{ earnings: 'As earnings', spending: 'As spending' }}
+          onChange={(v) => !disabled && onChange(v || value)} />
+      )}
+    </div>
+  )
+}
 
 /** Your own sheets: tabs like "Chinese New Year" made of tables you define. Sheets in the
  * Investments category are on their own tab (section "investments"). */
@@ -83,6 +105,8 @@ function SheetList({ section }: { section: Section }) {
 }
 
 function SheetView({ name, section }: { name: string; section: Section }) {
+  const { backend, changed, toast } = useData()
+  const [saving, setSaving] = useState(false)
   const sheets = useLoad((b) => b.listSheets())
   const load = useLoad((b) => b.sheetRows(name), [name])
   const [editing, setEditing] = useState(false)
@@ -106,6 +130,20 @@ function SheetView({ name, section }: { name: string; section: Section }) {
       <h2 className="grow">
         {sheet.name} <span className="muted small">{sheet.year} · {sheetCategory(sheet)} · {COUNTS[sheet.counts]}</span>
       </h2>
+      <section className="card">
+        <CountsToggle value={sheet.counts} disabled={saving} onChange={async (counts) => {
+          setSaving(true)
+          try {
+            await backend.saveSheet({ ...sheet, counts }, sheet.name)
+            toast(counts ? `Counted as ${counts}` : 'Not counted in totals')
+            changed()
+          } catch (e) {
+            toast(errorText(e))
+          } finally {
+            setSaving(false)
+          }
+        }} />
+      </section>
       <div className="lists-pair">
         {load.data.map((t) => (
           <section key={t.index} className="card flush">
@@ -201,13 +239,7 @@ function SheetForm({ sheet, existing, section, onClose }: { sheet?: CustomSheet;
             {categories.map((c) => <option key={c} value={c} />)}
           </datalist>
         </Field>
-        <Field label="In the Year End Summary" hint="Only RM tables are added">
-          <select value={s.counts} onChange={(e) => setS({ ...s, counts: e.target.value as CustomSheet['counts'] })}>
-            <option value="">Not counted</option>
-            <option value="earnings">Counts as earnings (e.g. ang pao received)</option>
-            <option value="spending">Counts as spending</option>
-          </select>
-        </Field>
+        <CountsToggle value={s.counts} onChange={(counts) => setS({ ...s, counts })} />
         <h3>Tables</h3>
         {s.tables.map((t, i) => (
           <div key={i} className="table-row">
