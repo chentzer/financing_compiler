@@ -19,7 +19,7 @@ from dataclasses import asdict
 from datetime import date
 
 from . import settings as S
-from . import sheetplan
+from . import overview, sheetplan
 from .accounts import AccountRow, Tab, deduction_month, month_title, parse_month_title
 from .pipeline import Compiled, compile_statements
 from .suggest import suggest_categories
@@ -527,3 +527,22 @@ def year_summary(year: int, titles: list[str]) -> list[dict]:
     months, trips = sheetplan.month_and_trip_tabs(list(titles), int(year), config)
     cells = year_summary_cells(months, trips, *summary_refs(config.sheets, set(titles), int(year)))
     return [{"range": f"{sheetplan.quote(YEAR_SUMMARY)}!{c}", "values": [[v]]} for c, v in cells.items()]
+
+
+# ---- Home and Trips screens (overview.py) ------------------------------------------
+
+
+def year_ranges(year: int, titles: list[str]) -> list[str]:
+    return overview.year_ranges(int(year), list(titles))
+
+
+def year_totals(year: int, titles: list[str], values: list[list[list]]) -> dict:
+    return overview.year_totals(int(year), list(titles), values)
+
+
+def trip_range(name: str) -> str:
+    return overview.trip_range(_trip(name))
+
+
+def trip_detail(name: str, values: list[list]) -> dict:
+    return overview.trip_detail(_trip(name), values or [])

@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
+import { useStored } from '../app/store'
 import { errorText, useData, useLoad } from '../app/context'
 import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
-import { STATEMENT_SOURCES, type UploadFile, type UploadResult } from '../data/Backend'
+import { STATEMENT_SOURCES, type UploadFile, type UploadProgress, type UploadResult } from '../data/Backend'
 
 const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? ({ splitwise: 'Splitwise', workbook: 'Accounts workbook' } as Record<string, string>)[key ?? ''] ?? key ?? ''
 
@@ -21,10 +22,12 @@ export function Upload() {
 function UploadInner() {
   const { backend, changed } = useData()
   const input = useRef<HTMLInputElement>(null)
-  const [picked, setPicked] = useState<UploadFile[]>([])
-  const [results, setResults] = useState<UploadResult[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
+  // Kept while you look at another tab; an upload keeps running meanwhile.
+  const [picked, setPicked] = useStored<UploadFile[]>('upload.picked', [])
+  const [results, setResults] = useStored<UploadResult[]>('upload.results', [])
+  const [busy, setBusy] = useStored('upload.busy', false)
+  const [error, setError] = useStored<string | undefined>('upload.error', undefined)
+  const [progress, setProgress] = useStored<UploadProgress | undefined>('upload.progress', undefined)
   const [dragging, setDragging] = useState(false)
   const keep = useLoad((b) => b.getKeepPdfCopies())
 
@@ -47,8 +50,9 @@ function UploadInner() {
   async function run(files: UploadFile[], passwords?: Record<string, string>) {
     setBusy(true)
     setError(undefined)
+    setProgress({ fraction: 0, step: 'Starting' })
     try {
-      const out = await backend.uploadStatements(files, passwords)
+      const out = await backend.uploadStatements(files, passwords, setProgress)
       // Replace earlier results for the same files, keep the order picked.
       setResults((prev) => {
         const byFile = new Map(prev.map((r) => [r.file, r]))
@@ -60,6 +64,7 @@ function UploadInner() {
       setError(errorText(e))
     } finally {
       setBusy(false)
+      setProgress(undefined)
     }
   }
 
@@ -134,6 +139,26 @@ function UploadInner() {
           </ul>
         )}
       </div>
+
+      {busy && progress && (
+        <div className="card upload-progress" aria-live="polite">
+          <div className="progress">
+            <div
+              className="bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(progress.fraction * 100)}
+            >
+              <div style={{ width: `${Math.max(3, progress.fraction * 100)}%` }} />
+            </div>
+            <span>{Math.round(progress.fraction * 100)}%</span>
+          </div>
+          <p className="muted small">
+            {progress.step}. You can look at other tabs meanwhile; keep this app open.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="error-box" role="alert">

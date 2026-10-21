@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react'
 /**
  * Hash routes, so the same build works on GitHub Pages and in Capacitor
  * without server rewrites:
- *   #/  #/upload  #/cards  #/month/2026-09  #/sheets  #/sheets/<name>  #/settings/rules
+ *   #/  #/upload  #/cards  #/month/2026-09  #/trips  #/trips/<name>  #/sheets  #/sheets/<name>  #/settings/rules
  */
 export type Route =
   | { name: 'home' }
   | { name: 'upload' }
   | { name: 'cards' }
   | { name: 'month'; year?: number; month?: number }
+  | { name: 'trips'; trip?: string }
   | { name: 'sheets'; sheet?: string }
   | { name: 'settings'; tab?: string }
 
@@ -24,6 +25,8 @@ export function parseRoute(hash: string): Route {
       const m = parts[1]?.match(/^(\d{4})-(\d{2})$/)
       return m ? { name: 'month', year: +m[1], month: +m[2] } : { name: 'month' }
     }
+    case 'trips':
+      return { name: 'trips', trip: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case 'sheets':
       return { name: 'sheets', sheet: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case 'settings':
@@ -41,6 +44,8 @@ export function href(r: Route): string {
       return r.year ? `#/month/${r.year}-${String(r.month).padStart(2, '0')}` : '#/month'
     case 'settings':
       return r.tab ? `#/settings/${r.tab}` : '#/settings'
+    case 'trips':
+      return r.trip ? `#/trips/${encodeURIComponent(r.trip)}` : '#/trips'
     case 'sheets':
       return r.sheet ? `#/sheets/${encodeURIComponent(r.sheet)}` : '#/sheets'
     default:

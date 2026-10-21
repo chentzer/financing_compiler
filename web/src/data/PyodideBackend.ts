@@ -32,8 +32,12 @@ import {
   type RowEdit,
   type Rule,
   type Settings,
+  type TripDetail,
+  type TripTotal,
   type UploadFile,
+  type UploadProgress,
   type UploadResult,
+  type YearSummary,
   type VaultState,
 } from './Backend'
 import { Google, type SheetTab, type Values } from './google'
@@ -71,6 +75,7 @@ interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item
 interface Target { title: string; trip: boolean; year: number; currencies: string[] }
 type Plan = { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }
 interface Book { year: number; id: string }
+type Tell = (fraction: number, step: string) => void
 interface Where { book: Book; tab: string; trip: boolean }
 
 const monthTitle = (y: number, m: number) => `${MONTHS[m - 1]} ${y}`
@@ -366,6 +371,53 @@ export class PyodideBackend implements Backend {
 
   // ---- custom sheets (Sheets section) --------------------------------------------------
 
+  // ---- years and trips (Home, Trips) -----------------------------------------------------
+
+  async listYears(): Promise<number[]> {
+    return (await this.yearBooks()).map((b) => b.year)
+  }
+
+  async yearSummary(year: number): Promise<YearSummary> {
+    const b = await this.book(year)
+    const empty: YearSummary = { year, months: [], byCategory: [], earnings: 0, spendings: 0, trips: 0, final: 0 }
+    if (!b) return empty
+    const titles = (await this.g.tabs(b.id)).map((t) => t.title)
+    const ranges = await py<string[]>('year_ranges', [year, titles])
+    if (!ranges.length) return empty
+    const values = await this.g.read(b.id, ranges, 'UNFORMATTED_VALUE')
+    const y = await py<Omit<YearSummary, 'byCategory'> & { byCategory: Record<string, number> }>('year_totals', [year, titles, values])
+    const byCategory = Object.entries(y.byCategory)
+      .map(([name, amount]) => ({ name: name === 'Not set' ? '' : name, amount }))
+      .filter((c) => c.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+    return { ...y, byCategory }
+  }
+
+  async listTrips(): Promise<TripTotal[]> {
+    const trips = (await this.getSettings()).trips
+    const cells = await this.cells()
+    const out: TripTotal[] = trips.map((trip) => ({ trip, year: +trip.start.slice(0, 4), total: null }))
+    for (const b of await this.yearBooks()) {
+      const mine = out.filter((t) => t.year === b.year)
+      if (!mine.length) continue
+      const titles = new Set((await this.g.tabs(b.id)).map((t) => t.title))
+      const here = mine.filter((t) => titles.has(t.trip.name))
+      const got = await this.g.read(b.id, here.map((t) => `${quote(t.trip.name)}!${cells.tripTotal}`), 'UNFORMATTED_VALUE')
+      here.forEach((t, i) => (t.total = Number(got[i]?.[0]?.[0] ?? 0)))
+    }
+    return out.sort((a, b) => b.trip.start.localeCompare(a.trip.start))
+  }
+
+  async tripDetail(name: string): Promise<TripDetail> {
+    await this.useSettings()
+    const trip = (await this.getSettings()).trips.find((t) => t.name === name)
+    if (!trip) throw new Error(`No trip called "${name}" in Settings › Trips.`)
+    const b = await this.book(+trip.start.slice(0, 4))
+    const has = b && (await this.g.tabs(b.id)).some((t) => t.title === name)
+    const [values] = has ? await this.g.read(b!.id, [await py<string>('trip_range', [name])], 'UNFORMATTED_VALUE') : [[]]
+    return py<TripDetail>('trip_detail', [name, values])
+  }
+
   async listSheets(): Promise<CustomSheet[]> {
     await this.useSettings()
     return py<CustomSheet[]>('sheets_list', [])
@@ -518,19 +570,29 @@ export class PyodideBackend implements Backend {
 
   // ---- upload ---------------------------------------------------------------------------
 
-  async uploadStatements(all: UploadFile[], typed: Passwords = {}): Promise<UploadResult[]> {
+  async uploadStatements(all: UploadFile[], typed: Passwords = {}, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]> {
     // Accounts workbooks you kept by hand (.xlsx) are copied in as they are; the rest are statements.
     const workbooks = all.filter((f) => /\.xlsx$/i.test(f.name))
     const files = all.filter((f) => !workbooks.includes(f))
+    // Each workbook is one part of the bar, the statements together another.
+    const parts = workbooks.length + (files.length ? 1 : 0)
+    let part = 0
+    const tell: Tell = (fraction, step) => onProgress?.({ fraction: Math.min(1, (part + fraction) / parts), step })
     const imported: UploadResult[] = []
-    for (const w of workbooks) imported.push(await this.importWorkbook(w))
+    for (const w of workbooks) {
+      imported.push(await this.importWorkbook(w, tell))
+      part++
+    }
     if (!files.length) return imported
-    return [...imported, ...(await this.uploadFiles(files, typed))]
+    const read = await this.uploadFiles(files, typed, tell)
+    tell(1, 'Done')
+    return [...imported, ...read]
   }
 
   /** An old accounts workbook: each month tab's rows onto the same month here, as rows you added. */
-  private async importWorkbook(file: UploadFile): Promise<UploadResult> {
+  private async importWorkbook(file: UploadFile, tell: Tell): Promise<UploadResult> {
     try {
+      tell(0, `Reading ${file.name}`)
       await this.useSettings()
       type OldTrip = { name: string; currencies: { code: string; rate: number | null }[]; start: string; end: string;
         year: number; rm: object[]; paid: object[]; cash: Record<string, object[]>; received: object[] }
@@ -547,7 +609,11 @@ export class PyodideBackend implements Backend {
       }
       let added = 0
       let total = 0
+      const steps = titles.length + out.trips.length + out.sheets.length
+      let step = 0
+      const stepAt = (what: string) => tell(0.05 + 0.95 * (step++ / Math.max(1, steps)), `${file.name}: ${what}`)
       for (const t of titles) {
+        stepAt(t)
         added += await this.placeRowsCounted(out.years[t], out.months[t], t)
         total += out.months[t].length
       }
@@ -555,6 +621,7 @@ export class PyodideBackend implements Backend {
 
       // Trips: added to Settings › Trips (which makes the tab), then all three blocks.
       for (const trip of out.trips) {
+        stepAt(trip.name)
         const st = await this.getSettings()
         if (!st.trips.some((t) => t.name === trip.name)) {
           st.trips.push({ name: trip.name, start: trip.start, end: trip.end,
@@ -575,6 +642,7 @@ export class PyodideBackend implements Backend {
 
       // Your own tabs (e.g. ang pao): a sheet in the Sheets section, then its rows.
       for (const sh of out.sheets) {
+        stepAt(sh.name)
         if (!(await this.listSheets()).some((s) => s.name === sh.name)) {
           await this.saveSheet({ name: sh.name, year: sh.year, counts: sh.counts,
             tables: sh.tables.map((t) => ({ name: t.name, currency: t.currency, label: t.label })) })
@@ -599,7 +667,8 @@ export class PyodideBackend implements Backend {
     }
   }
 
-  private async uploadFiles(files: UploadFile[], typed: Passwords): Promise<UploadResult[]> {
+  private async uploadFiles(files: UploadFile[], typed: Passwords, tell: Tell): Promise<UploadResult[]> {
+    tell(0, `Reading ${files.length === 1 ? files[0].name : `${files.length} statements`}`)
     const settings = await this.readSettings()
     const saved = (await this.vaultState()) === 'unlocked' ? { ...this.unlocked!.passwords } : {}
     const passwords = { ...saved, ...typed }
@@ -616,9 +685,14 @@ export class PyodideBackend implements Backend {
         changed = true
       }
       if (changed && this.unlocked) await this.savePasswords(learned)
+      tell(0.3, 'Saving to your Ledger')
       await this.writeLedger(settings.id, out.ledger)
-      for (const year of out.years) await this.syncYear(year)
+      for (const [i, year] of out.years.entries()) {
+        tell(0.4 + 0.5 * (i / out.years.length), `Writing ${year} Accounts`)
+        await this.syncYear(year)
+      }
       if (await this.getKeepPdfCopies()) {
+        tell(0.92, 'Keeping copies in Drive')
         await this.keepCopies(files.flatMap((f) => {
           const o = okFiles.find((x) => x.name === f.name)
           return o ? [{ file: f, parser: o.parser }] : []
@@ -679,7 +753,20 @@ export class PyodideBackend implements Backend {
     return { book, added }
   }
 
-  private async syncBook(
+  /** One sync at a time: Python keeps the prepared plan between prepare and finish. */
+  private syncing: Promise<unknown> = Promise.resolve()
+
+  private syncBook(
+    year: number,
+    prepare: (titles: string[], created: boolean) => Promise<Prep>,
+    finish: (ids: Record<string, number>, values: Record<string, Values>) => Promise<Fin>,
+  ): Promise<Book> {
+    const next = this.syncing.then(() => this.syncBookNow(year, prepare, finish))
+    this.syncing = next.catch(() => undefined)
+    return next
+  }
+
+  private async syncBookNow(
     year: number,
     prepare: (titles: string[], created: boolean) => Promise<Prep>,
     finish: (ids: Record<string, number>, values: Record<string, Values>) => Promise<Fin>,

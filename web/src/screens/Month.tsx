@@ -117,7 +117,7 @@ function Summary({ s }: { s: MonthSummary }) {
   )
 }
 
-function Bars({ items, max }: { items: { name: string; amount: number }[]; max: number }) {
+export function Bars({ items, max }: { items: { name: string; amount: number }[]; max: number }) {
   return (
     <ul className="bars">
       {items.map((c) => (

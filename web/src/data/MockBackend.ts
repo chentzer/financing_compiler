@@ -18,6 +18,10 @@ import {
   type UploadFile,
   type UploadResult,
   type VaultState,
+  type TripDetail,
+  type TripTotal,
+  type UploadProgress,
+  type YearSummary,
 } from './Backend'
 import { WrongPinError } from './vault'
 import { demoUploadRows, initialState, toRow, type MockState } from './mockData'
@@ -61,6 +65,53 @@ export class MockBackend implements Backend {
     [{ key: 's1', date: '2026-02-17', item: 'Auntie Mei', amount: 50, remarks: '' }, { key: 's2', date: '2026-02-17', item: 'Uncle Bob', amount: 100, remarks: 'Penang' }],
     [{ key: 's3', date: '2026-02-20', item: 'SG cousin', amount: 10, remarks: '' }],
   ]]])
+
+  async listYears(): Promise<number[]> {
+    await wait(50)
+    return [...new Set(this.s.rows.map((r) => +r.date.slice(0, 4)))].sort()
+  }
+
+  async yearSummary(year: number): Promise<YearSummary> {
+    const months: YearSummary['months'] = []
+    const cats = new Map<string, number>()
+    for (let m = 1; m <= 12; m++) {
+      if (!this.s.rows.some((r) => r.date.startsWith(`${year}-${String(m).padStart(2, '0')}`))) continue
+      const s = await this.monthSummary(year, m)
+      months.push({ month: m, earnings: s.earnings, spendings: s.spendings, trips: s.tripsTotal, final: s.final })
+      for (const c of s.byCategory) cats.set(c.name, (cats.get(c.name) ?? 0) + c.amount)
+    }
+    const total = (k: 'earnings' | 'spendings' | 'trips') => Math.round(months.reduce((a, m) => a + m[k], 0) * 100) / 100
+    const [earnings, spendings, trips] = [total('earnings'), total('spendings'), total('trips')]
+    return {
+      year, months, earnings, spendings, trips, final: Math.round((earnings - spendings - trips) * 100) / 100,
+      byCategory: [...cats].map(([name, amount]) => ({ name, amount })).filter((c) => c.amount > 0).sort((a, b) => b.amount - a.amount),
+    }
+  }
+
+  async listTrips(): Promise<TripTotal[]> {
+    await wait(100)
+    return this.s.settings.trips
+      .map((trip) => {
+        const rows = this.s.rows.filter((r) => r.trip === trip.name)
+        return { trip: clone(trip), year: +trip.start.slice(0, 4), total: rows.length ? sum(rows) : null }
+      })
+      .sort((a, b) => b.trip.start.localeCompare(a.trip.start))
+  }
+
+  async tripDetail(name: string): Promise<TripDetail> {
+    await wait()
+    const trip = this.s.settings.trips.find((t) => t.name === name)
+    if (!trip) throw new Error(`No trip called "${name}" in Settings › Trips.`)
+    const rows = this.s.rows.filter((r) => r.trip === name && r.kind === 'spend')
+    const total = sum(rows)
+    return {
+      name, start: trip.start, end: trip.end, total, spentRm: total, paidBack: 0,
+      rm: rows.map((r) => ({ date: r.date, item: r.item, amount: r.amount, category: r.category, importance: r.importance, source: r.source, remarks: r.remarks })),
+      paid: [],
+      currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate, spent: 0, rm: 0, rows: [] })),
+      received: [],
+    }
+  }
 
   async listSheets(): Promise<CustomSheet[]> {
     await wait(50)
@@ -281,9 +332,10 @@ export class MockBackend implements Backend {
     this.s.rows = this.s.rows.filter((r) => r.key !== key)
   }
 
-  async uploadStatements(files: UploadFile[], passwords: Passwords = {}): Promise<UploadResult[]> {
+  async uploadStatements(files: UploadFile[], passwords: Passwords = {}, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]> {
     const results: UploadResult[] = []
-    for (const f of files) {
+    for (const [i, f] of files.entries()) {
+      onProgress?.({ fraction: i / files.length, step: `Reading ${f.name}` })
       await wait(500)
       const source = guessSource(f.name)
       if (f.name.toLowerCase().endsWith('.xlsx')) {

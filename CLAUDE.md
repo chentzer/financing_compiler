@@ -71,6 +71,9 @@ python -m venv .venv
   hand-added rows with content-based "m-" keys, so re-importing adds nothing.
   Trip tabs (2023 "Japan Trip" layout) become a trip in Settings plus all
   three blocks; other table tabs (ang pao) become custom sheets.
+- `overview.py`: what Home (this year's and to-date totals, from each
+  month's summary cells and the Year End Summary) and the Trips screen
+  (one trip tab's blocks) read back.
 - `webapi.py`: the JSON-in/JSON-out functions the web app calls through
   Pyodide.
 - `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.

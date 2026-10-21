@@ -178,6 +178,62 @@ export interface Trip {
   link?: string
 }
 
+/** A trip with its total (Q4 of its tab: what you really paid, in RM). */
+export interface TripTotal {
+  trip: Trip
+  /** The spreadsheet it's in (the year it starts). */
+  year: number
+  /** null: no tab yet. */
+  total: number | null
+}
+
+/** A row on a trip tab. `currency` only on money received in other currencies. */
+export interface TripRow {
+  date: string
+  item: string
+  amount: number
+  category?: string
+  importance?: string
+  source?: string
+  remarks: string
+  currency?: string
+}
+
+export interface TripDetail {
+  name: string
+  start: string
+  end: string
+  /** RM spent + each currency's spending x its rate - paid back. */
+  total: number
+  spentRm: number
+  paidBack: number
+  rm: TripRow[]
+  /** Paid back to you (RM). */
+  paid: TripRow[]
+  currencies: { code: string; rate?: number | null; spent: number; rm: number; rows: TripRow[] }[]
+  /** Money received in other currencies (money exchange, leftovers). */
+  received: TripRow[]
+}
+
+/** A year's totals, from its month tabs and Year End Summary. */
+export interface YearSummary {
+  year: number
+  months: { month: number; earnings: number; spendings: number; trips: number; final: number }[]
+  byCategory: { name: string; amount: number }[]
+  earnings: number
+  /** Not counting trips. */
+  spendings: number
+  trips: number
+  /** earnings - spendings - trips */
+  final: number
+}
+
+/** How far an upload has got: 0..1, and what it's doing now. */
+export interface UploadProgress {
+  fraction: number
+  step: string
+}
+
 /** One table on a custom sheet: Date | <label> | Amount (<currency>) | Remarks. */
 export interface SheetTable {
   name: string
@@ -256,10 +312,17 @@ export interface Backend {
    * this upload (keyed by source); saved passwords are used automatically,
    * and a typed one is saved after it opens a PDF.
    */
-  uploadStatements(files: UploadFile[], passwords?: Passwords): Promise<UploadResult[]>
+  uploadStatements(files: UploadFile[], passwords?: Passwords, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]>
   /** Keep a copy of each uploaded PDF in Drive › fincomp › statements (off: read, then discarded). */
   getKeepPdfCopies(): Promise<boolean>
   setKeepPdfCopies(on: boolean): Promise<void>
+
+  /** Years that have a spreadsheet, oldest first. */
+  listYears(): Promise<number[]>
+  yearSummary(year: number): Promise<YearSummary>
+  /** Every trip in Settings › Trips with its total. */
+  listTrips(): Promise<TripTotal[]>
+  tripDetail(name: string): Promise<TripDetail>
 
   /** Your own sheets (Sheets section). */
   listSheets(): Promise<CustomSheet[]>
