@@ -27,10 +27,38 @@ export class GoogleError extends Error {
   }
 }
 
+// Answers are reused for this long; anything the app writes to a spreadsheet drops that
+// spreadsheet's saved answers at once. Edits made in Google Sheets itself show after this.
+const CACHE_MS = 2 * 60_000
+
 export class Google {
   private token: () => Promise<string>
+  /** Spreadsheet id -> (request -> answer). Screens ask for the same tabs and cells over and over. */
+  private cache = new Map<string, Map<string, { at: number; value: Promise<unknown> }>>()
+
   constructor(token: () => Promise<string>) {
     this.token = token
+  }
+
+  private cached<T>(id: string, key: string, load: () => Promise<T>): Promise<T> {
+    let mine = this.cache.get(id)
+    if (!mine) this.cache.set(id, (mine = new Map()))
+    const hit = mine.get(key)
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.value as Promise<T>
+    const value = load()
+    mine.set(key, { at: Date.now(), value })
+    value.catch(() => mine.delete(key)) // never keep a failure
+    return value
+  }
+
+  /** After a write: this spreadsheet's saved answers are out of date. */
+  private changed(id: string): void {
+    this.cache.delete(id)
+  }
+
+  /** Forget everything (e.g. after signing in again). */
+  forget(): void {
+    this.cache.clear()
   }
 
   private async call<T>(url: string, init: RequestInit = {}): Promise<T> {
@@ -155,41 +183,55 @@ export class Google {
   }
 
   async tabs(id: string): Promise<SheetTab[]> {
-    const r = await this.call<{ sheets: { properties: SheetTab }[] }>(
-      `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index,gridProperties.columnCount)`,
-    )
-    return r.sheets.map((s) => s.properties).sort((a, b) => a.index - b.index)
+    const tabs = await this.cached(id, 'tabs', async () => {
+      const r = await this.call<{ sheets: { properties: SheetTab }[] }>(
+        `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index,gridProperties.columnCount)`,
+      )
+      return r.sheets.map((s) => s.properties).sort((a, b) => a.index - b.index)
+    })
+    return tabs.map((t) => ({ ...t }))
   }
 
   /** Values for each range, in the same order as `ranges`. */
   async read(id: string, ranges: string[], render: Render): Promise<Values[]> {
     if (!ranges.length) return []
     const qs = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join('&')
-    const r = await this.call<{ valueRanges: { values?: Values }[] }>(
-      `${SHEETS}/${id}/values:batchGet?${qs}&valueRenderOption=${render}&dateTimeRenderOption=SERIAL_NUMBER`,
-    )
-    return r.valueRanges.map((v) => v.values ?? [])
+    const got = await this.cached(id, `${render} ${qs}`, async () => {
+      const r = await this.call<{ valueRanges: { values?: Values }[] }>(
+        `${SHEETS}/${id}/values:batchGet?${qs}&valueRenderOption=${render}&dateTimeRenderOption=SERIAL_NUMBER`,
+      )
+      return r.valueRanges.map((v) => v.values ?? [])
+    })
+    return structuredClone(got) // callers may change what they get
   }
 
   async write(id: string, data: { range: string; values: unknown[][] }[], input: 'RAW' | 'USER_ENTERED') {
     if (!data.length) return
-    await this.json(`${SHEETS}/${id}/values:batchUpdate`, 'POST', { valueInputOption: input, data })
+    this.changed(id)
+    await this.json(`${SHEETS}/${id}/values:batchUpdate`, 'POST', { valueInputOption: input, data }).finally(() => this.changed(id))
   }
 
   async clear(id: string, ranges: string[]) {
     if (!ranges.length) return
-    await this.json(`${SHEETS}/${id}/values:batchClear`, 'POST', { ranges })
+    this.changed(id)
+    await this.json(`${SHEETS}/${id}/values:batchClear`, 'POST', { ranges }).finally(() => this.changed(id))
   }
 
   async append(id: string, range: string, values: unknown[][]) {
+    this.changed(id)
     await this.json(
       `${SHEETS}/${id}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       'POST', { values },
-    )
+    ).finally(() => this.changed(id))
   }
 
   async batch(id: string, requests: object[]): Promise<{ replies?: Record<string, unknown>[] }> {
     if (!requests.length) return {}
-    return this.json(`${SHEETS}/${id}:batchUpdate`, 'POST', { requests }) as Promise<{ replies?: Record<string, unknown>[] }>
+    this.changed(id)
+    try {
+      return await (this.json(`${SHEETS}/${id}:batchUpdate`, 'POST', { requests }) as Promise<{ replies?: Record<string, unknown>[] }>)
+    } finally {
+      this.changed(id) // and anything read while it ran
+    }
   }
 }

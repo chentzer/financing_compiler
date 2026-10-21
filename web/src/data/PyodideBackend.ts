@@ -66,6 +66,23 @@ const SETTINGS_RANGES: Record<string, string> = {
   Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D", Sheets: "'Sheets'!A1:E",
 }
 const SHEETS_HEADER = ['Name', 'Year', 'Counts as (earnings / spending / blank)', 'Tables (name / currency / column ; ...)', 'Category']
+// Which layout this device last checked each spreadsheet against (upgradeLayout).
+const LAYOUT_VERSION = 3
+const layoutKey = (id: string) => `fincomp.layout.${id}`
+function layoutChecked(id: string): boolean {
+  try {
+    return localStorage.getItem(layoutKey(id)) === String(LAYOUT_VERSION)
+  } catch {
+    return false
+  }
+}
+function markLayoutChecked(id: string): void {
+  try {
+    localStorage.setItem(layoutKey(id), String(LAYOUT_VERSION))
+  } catch {
+    /* storage blocked: checked again next visit */
+  }
+}
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
@@ -158,15 +175,23 @@ export class PyodideBackend implements Backend {
   private async upgradeLayout(books: Book[]): Promise<void> {
     let compiled = false
     for (const b of books) {
+      // Checked on this device already: nothing to read. (Bump LAYOUT_VERSION when the layout changes.)
+      if (layoutChecked(b.id)) continue
       await this.useSettings()
       const { tabs, ids } = await this.ids(b.id)
       const titles = tabs.map((t) => t.title)
       const headers = await py<string[]>('upgrade_headers', [b.year, titles])
-      if (!headers.length) continue
+      if (!headers.length) {
+        markLayoutChecked(b.id)
+        continue
+      }
       const got = await this.g.read(b.id, headers, 'UNFORMATTED_VALUE')
       const plan = await py<{ requests: object[]; finish: string[]; trips: Record<string, string> }>(
         'upgrade_columns', [ids, Object.fromEntries(headers.map((r, i) => [r, got[i]]))])
-      if (!plan.finish.length && !Object.keys(plan.trips).length) continue
+      if (!plan.finish.length && !Object.keys(plan.trips).length) {
+        markLayoutChecked(b.id)
+        continue
+      }
       if (plan.requests.length) await this.g.batch(b.id, plan.requests)
       if (!compiled) {
         // Each row's bank and statement text, from the Ledger.
@@ -190,6 +215,7 @@ export class PyodideBackend implements Backend {
         await this.run(b.id, { clear: [], data: [], requests: fin.requests })
         await this.run(b.id, { ...fin, requests: [] })
       }
+      markLayoutChecked(b.id)
     }
   }
 
@@ -242,8 +268,10 @@ export class PyodideBackend implements Backend {
 
   async listMonths(): Promise<Month[]> {
     const months: Month[] = []
-    for (const b of await this.yearBooks()) {
-      for (const t of await this.g.tabs(b.id)) {
+    const books = await this.yearBooks()
+    const tabsOf = await Promise.all(books.map((b) => this.g.tabs(b.id)))
+    for (const tabs of tabsOf) {
+      for (const t of tabs) {
         if (!isMonthTab(t.title)) continue
         const [name, year] = t.title.split(' ')
         months.push({ year: +year, month: MONTHS.indexOf(name) + 1 })
@@ -328,9 +356,14 @@ export class PyodideBackend implements Backend {
     const later = readLater()
     const out: Card[] = []
     this.cardsAt.clear()
-    for (const b of await this.yearBooks()) {
-      if (!(await this.g.tabs(b.id)).some((t) => t.title === TO_UPDATE)) continue
-      const [rows] = await this.g.read(b.id, [`${quote(TO_UPDATE)}!A2:H`], 'UNFORMATTED_VALUE')
+    const books = await this.yearBooks()
+    const found = await Promise.all(books.map(async (b) => {
+      if (!(await this.g.tabs(b.id)).some((t) => t.title === TO_UPDATE)) return null
+      return (await this.g.read(b.id, [`${quote(TO_UPDATE)}!A2:H`], 'UNFORMATTED_VALUE'))[0]
+    }))
+    for (const [i, b] of books.entries()) {
+      const rows = found[i]
+      if (!rows) continue
       for (const c of await py<PyCard[]>('cards', [rows])) {
         const person = /^(To|From) /.test(c.who)
         const card: Card = {
@@ -401,14 +434,14 @@ export class PyodideBackend implements Backend {
     const trips = (await this.getSettings()).trips
     const cells = await this.cells()
     const out: TripTotal[] = trips.map((trip) => ({ trip, year: +trip.start.slice(0, 4), total: null }))
-    for (const b of await this.yearBooks()) {
+    await Promise.all((await this.yearBooks()).map(async (b) => {
       const mine = out.filter((t) => t.year === b.year)
-      if (!mine.length) continue
+      if (!mine.length) return
       const titles = new Set((await this.g.tabs(b.id)).map((t) => t.title))
       const here = mine.filter((t) => titles.has(t.trip.name))
       const got = await this.g.read(b.id, here.map((t) => `${quote(t.trip.name)}!${cells.tripTotal}`), 'UNFORMATTED_VALUE')
       here.forEach((t, i) => (t.total = Number(got[i]?.[0]?.[0] ?? 0)))
-    }
+    }))
     return out.sort((a, b) => b.trip.start.localeCompare(a.trip.start))
   }
 
