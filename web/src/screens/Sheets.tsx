@@ -20,12 +20,14 @@ function money(amount: number, currency: string): string {
 type Section = 'sheets' | 'investments'
 
 /** On: the sheet's RM tables are added to the year's earnings or spending (Year End Summary, Home). */
-function CountsToggle({ value, onChange, disabled }: { value: CustomSheet['counts']; onChange(v: CustomSheet['counts']): void; disabled?: boolean }) {
+function CountsToggle({ value, onChange, disabled, invest }: { value: CustomSheet['counts']; onChange(v: CustomSheet['counts']): void; disabled?: boolean; invest?: boolean }) {
+  // Money put into investments leaves your account like spending; other sheets (ang pao) are usually earnings.
+  const first = invest ? 'spending' : 'earnings'
   return (
     <div className="stack tight">
       <label className="toggle">
         <input type="checkbox" checked={value !== ''} disabled={disabled}
-          onChange={(e) => onChange(e.target.checked ? 'earnings' : '')} />
+          onChange={(e) => onChange(e.target.checked ? first : '')} />
         <span className="switch" aria-hidden />
         <span>
           Count in the year's totals
@@ -131,7 +133,7 @@ function SheetView({ name, section }: { name: string; section: Section }) {
         {sheet.name} <span className="muted small">{sheet.year} · {sheetCategory(sheet)} · {COUNTS[sheet.counts]}</span>
       </h2>
       <section className="card">
-        <CountsToggle value={sheet.counts} disabled={saving} onChange={async (counts) => {
+        <CountsToggle value={sheet.counts} disabled={saving} invest={isInvestment(sheet)} onChange={async (counts) => {
           setSaving(true)
           try {
             await backend.saveSheet({ ...sheet, counts }, sheet.name)
@@ -239,7 +241,7 @@ function SheetForm({ sheet, existing, section, onClose }: { sheet?: CustomSheet;
             {categories.map((c) => <option key={c} value={c} />)}
           </datalist>
         </Field>
-        <CountsToggle value={s.counts} onChange={(counts) => setS({ ...s, counts })} />
+        <CountsToggle value={s.counts} invest={isInvestment(s)} onChange={(counts) => setS({ ...s, counts })} />
         <h3>Tables</h3>
         {s.tables.map((t, i) => (
           <div key={i} className="table-row">
