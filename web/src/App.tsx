@@ -9,6 +9,7 @@ import { Month } from './screens/Month'
 import { Settings } from './screens/Settings'
 import { Sheets } from './screens/Sheets'
 import { Trips } from './screens/Trips'
+import { Year } from './screens/Year'
 import { Upload } from './screens/Upload'
 
 const TITLES: Record<Route['name'], string> = {
@@ -16,6 +17,7 @@ const TITLES: Record<Route['name'], string> = {
   upload: 'Upload',
   cards: 'To Update',
   month: 'Month',
+  year: 'Year',
   trips: 'Trips',
   investments: 'Investments',
   sheets: 'Sheets',
@@ -60,6 +62,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
     { route: { name: 'cards' }, label: 'To Update', icon: '✎', badge: open },
     { route: { name: 'upload' }, label: 'Upload', icon: '⇪' },
     { route: { name: 'month' }, label: 'Month', icon: '▦' },
+    { route: { name: 'year' }, label: 'Year', icon: '▥' },
     { route: { name: 'trips' }, label: 'Trips', icon: '✈' },
     { route: { name: 'investments' }, label: 'Invest', icon: '↗' },
     { route: { name: 'sheets' }, label: 'Sheets', icon: '▤' },
@@ -85,6 +88,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           {route.name === 'upload' && <Upload />}
           {route.name === 'cards' && <Cards />}
           {route.name === 'month' && <Month year={route.year} month={route.month} />}
+          {route.name === 'year' && <Year year={route.year} />}
           {route.name === 'trips' && <Trips trip={route.trip} />}
           {route.name === 'investments' && <Sheets sheet={route.sheet} section="investments" />}
           {route.name === 'sheets' && <Sheets sheet={route.sheet} />}

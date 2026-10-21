@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react'
 /**
  * Hash routes, so the same build works on GitHub Pages and in Capacitor
  * without server rewrites:
- *   #/  #/upload  #/cards  #/month/2026-09  #/trips  #/trips/<name>  #/investments  #/sheets  #/sheets/<name>  #/settings/rules
+ *   #/  #/upload  #/cards  #/month/2026-09  #/year/2026  #/trips  #/trips/<name>  #/investments  #/sheets  #/sheets/<name>  #/settings/rules
  */
 export type Route =
   | { name: 'home' }
   | { name: 'upload' }
   | { name: 'cards' }
   | { name: 'month'; year?: number; month?: number }
+  | { name: 'year'; year?: number }
   | { name: 'trips'; trip?: string }
   | { name: 'investments'; sheet?: string }
   | { name: 'sheets'; sheet?: string }
@@ -26,6 +27,8 @@ export function parseRoute(hash: string): Route {
       const m = parts[1]?.match(/^(\d{4})-(\d{2})$/)
       return m ? { name: 'month', year: +m[1], month: +m[2] } : { name: 'month' }
     }
+    case 'year':
+      return /^\d{4}$/.test(parts[1] ?? '') ? { name: 'year', year: +parts[1] } : { name: 'year' }
     case 'trips':
       return { name: 'trips', trip: parts[1] ? decodeURIComponent(parts[1]) : undefined }
     case 'investments':
@@ -47,6 +50,8 @@ export function href(r: Route): string {
       return r.year ? `#/month/${r.year}-${String(r.month).padStart(2, '0')}` : '#/month'
     case 'settings':
       return r.tab ? `#/settings/${r.tab}` : '#/settings'
+    case 'year':
+      return r.year ? `#/year/${r.year}` : '#/year'
     case 'trips':
       return r.trip ? `#/trips/${encodeURIComponent(r.trip)}` : '#/trips'
     case 'investments':

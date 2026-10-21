@@ -30,17 +30,21 @@ export function Home() {
             <span className="label">Final</span>
             <span className={summary.final < 0 ? 'amount neg' : 'amount pos'}>{rm(summary.final)}</span>
           </div>
-          <div className="pair">
+          <div className="pair three">
+            <div>
+              <span className="label">Earnings</span>
+              <span className="amount">{rm(summary.earnings)}</span>
+            </div>
             <div>
               <span className="label">Spending</span>
               <span className="amount">{rm(summary.spendings)}</span>
             </div>
             <div>
-              <span className="label">Earnings</span>
-              <span className="amount">{rm(summary.earnings)}</span>
+              <span className="label">Trips ending</span>
+              <span className={summary.tripsTotal < 0 ? 'amount neg' : 'amount'}>{rm(summary.tripsTotal)}</span>
             </div>
           </div>
-          {summary.tripsTotal > 0 && <div className="muted small">Trips this month: {rm(summary.tripsTotal)}</div>}
+          <NegativeTrips trips={summary.trips} />
           <span className="link-hint">See month →</span>
         </a>
       ) : (
@@ -126,7 +130,20 @@ function YearCards({ years }: { years: YearSummary[] }) {
   )
 }
 
-function Totals({ earnings, spendings, trips, final }: { earnings: number; spendings: number; trips: number; final: number }) {
+/** A trip below zero (more paid back than its spending counts, often a currency without a rate)
+ * raises the month's Final: say which, since it looks like a mistake otherwise. */
+export function NegativeTrips({ trips }: { trips: { name: string; total: number }[] }) {
+  const neg = trips.filter((t) => t.total < 0)
+  if (!neg.length) return null
+  return (
+    <p className="warn small">
+      {neg.map((t) => `${t.name} (${rm(t.total)})`).join(', ')}: more was paid back to you than its spending counts, so it
+      adds to Final. A currency without a rate counts as RM 0: set it in Settings › Trips.
+    </p>
+  )
+}
+
+export function Totals({ earnings, spendings, trips, final }: { earnings: number; spendings: number; trips: number; final: number }) {
   return (
     <>
       <div className="final">
@@ -156,7 +173,7 @@ const num = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2,
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** Each month's Final as a bar: up for saved, down for overspent. */
-function MonthBars({ months }: { months: YearSummary['months'] }) {
+export function MonthBars({ months }: { months: YearSummary['months'] }) {
   const max = Math.max(1, ...months.map((m) => Math.abs(m.final)))
   return (
     <ul className="bars">

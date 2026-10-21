@@ -5,6 +5,7 @@ import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import { IMPORTANCE, STATEMENT_SOURCES, type Kind, type Month as MonthT, type MonthSummary, type NewRow, type Row, type Trip } from '../data/Backend'
+import { NegativeTrips } from './Home'
 
 export function Month({ year, month }: { year?: number; month?: number }) {
   const months = useLoad((b) => b.listMonths())
@@ -101,7 +102,7 @@ function Summary({ s }: { s: MonthSummary }) {
         {s.trips.map((t) => (
           <div key={t.name}>
             <span className="label">{t.name}</span>
-            <span className="amount">{rm(t.total)}</span>
+            <span className={t.total < 0 ? 'amount neg' : 'amount'}>{rm(t.total)}</span>
           </div>
         ))}
         <div className="final-row">
@@ -109,6 +110,7 @@ function Summary({ s }: { s: MonthSummary }) {
           <span className={s.final < 0 ? 'amount neg' : 'amount pos'}>{rm(s.final)}</span>
         </div>
       </div>
+      <NegativeTrips trips={s.trips} />
       <h3>By Category</h3>
       <Bars items={s.byCategory} max={maxCat} />
       <h3>By Importance</h3>
