@@ -45,12 +45,18 @@ function loadGis(): Promise<void> {
   })
 }
 
+// Renew on your next tap once less than this is left.
+const RENEW_BEFORE_MS = 15 * 60_000
+
 /**
- * Web sign-in with the Google Identity Services token client. The token
- * (about an hour) is kept in this browser until it expires. After that the
- * app shows "Continue" and the click asks Google again (a popup that closes
- * by itself when you already agreed): browsers block popups not started by
- * a click, so a token is never requested on its own.
+ * Web sign-in with the Google Identity Services token client. Google gives
+ * a browser-only app an access token for an hour and no refresh token, and
+ * asking for a new one opens a popup (closing by itself when you already
+ * agreed) that browsers only allow straight after a tap. So the app stays
+ * signed in by renewing on your taps: in the last 15 minutes of the hour,
+ * the next tap anywhere quietly gets a new token. Only after more than an
+ * hour away does a call have to wait for "Continue". The Android app renews
+ * without any of this (NativeAuth).
  */
 export class GoogleWebAuth implements Auth {
   readonly kind = 'google-web' as const
@@ -73,6 +79,15 @@ export class GoogleWebAuth implements Auth {
     } catch {
       this.user = null
     }
+    if (this.user) loadGis().catch(() => undefined) // ready before the first tap
+    document.addEventListener('click', () => this.renewOnTap(), true)
+  }
+
+  /** A tap is the one moment a popup is allowed: renew the token while it's nearly used up. */
+  private renewOnTap(): void {
+    if (!this.user || this.pending || this.waiting) return // "Continue" handles a token already gone
+    if (this.token && this.token.expires > Date.now() + RENEW_BEFORE_MS) return
+    this.request('').catch(() => undefined) // closed or blocked: try again on a later tap
   }
 
   currentUser(): User | null {
