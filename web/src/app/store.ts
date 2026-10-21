@@ -25,3 +25,9 @@ export function useStored<T>(key: string, initial: T): [T, (next: T | ((prev: T)
   )
   return [value, set]
 }
+
+/** Set stored state from outside a screen (e.g. files shared to the app). */
+export function setStored<T>(key: string, value: T): void {
+  values.set(key, value)
+  listeners.forEach((l) => l())
+}

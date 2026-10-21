@@ -10,6 +10,7 @@ import { Settings } from './screens/Settings'
 import { Sheets } from './screens/Sheets'
 import { Trips } from './screens/Trips'
 import { Year } from './screens/Year'
+import { listenForShares } from './app/share'
 import { Upload } from './screens/Upload'
 
 const TITLES: Record<Route['name'], string> = {
@@ -54,6 +55,7 @@ export default function App({ auth }: { auth: Auth }) {
 
 function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
   const route = useRoute()
+  useEffect(() => listenForShares(), []) // files shared to FinMerge open Upload and upload
   const cards = useLoad((b) => b.listCards())
   const open = cards.data?.length ?? 0
 

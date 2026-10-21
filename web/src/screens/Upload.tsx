@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStored } from '../app/store'
 import { errorText, useData, useLoad } from '../app/context'
 import { href } from '../app/router'
@@ -28,6 +28,8 @@ function UploadInner() {
   const [busy, setBusy] = useStored('upload.busy', false)
   const [error, setError] = useStored<string | undefined>('upload.error', undefined)
   const [progress, setProgress] = useStored<UploadProgress | undefined>('upload.progress', undefined)
+  // Files shared to FinMerge from another app upload by themselves (app/share.ts).
+  const [auto, setAuto] = useStored('upload.auto', false)
   const [dragging, setDragging] = useState(false)
   const keep = useLoad((b) => b.getKeepPdfCopies())
 
@@ -67,6 +69,13 @@ function UploadInner() {
       setProgress(undefined)
     }
   }
+
+  useEffect(() => {
+    if (!auto || busy || !picked.length) return
+    setAuto(false)
+    void run(picked)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, busy, picked])
 
   const needPw = [...new Set(results.filter((r) => r.status === 'password').map((r) => r.passwordFor!))]
   const newCards = results.reduce((a, r) => a + (r.cardsAdded ?? 0), 0)
