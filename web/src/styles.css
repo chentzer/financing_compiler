@@ -604,13 +604,13 @@ a:focus-visible {
 }
 .uc-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1.4fr;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   gap: 8px;
 }
-/* Phones: Not mine / Skip / Later in a row, Save full width under them. */
+/* Phones: Trip / Not mine / Skip / Later in a row, Save full width under them. */
 @media (max-width: 480px) {
   .uc-actions {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
   }
   .uc-actions .btn.primary {
     grid-column: 1 / -1;
