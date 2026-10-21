@@ -72,3 +72,10 @@ def test_month_trips_are_the_ones_ending_that_month():
     webapi.use_settings(S.tabs_from_config(cfg))
     assert webapi.month_trips(2026, 6) == ["Bali Trip"]
     assert webapi.month_trips(2025, 12) == ["Cebu Trip"]  # across new year: its own year's December
+
+
+def test_edit_writes_date_and_amount_cells():
+    from fincomp import sheetplan
+    values = {"'October 2026'!A3:H": [[46300, "Lunch", "Food", 12.5, "", "TNG", "", "k1"]], "'October 2026'!P3:U": []}
+    data, _ = sheetplan.edit_plan("k1", values, {"October 2026": 1}, {"date": "2026-10-20", "amount": 15.0})
+    assert {d["range"]: d["values"][0][0] for d in data} == {"'October 2026'!A3": "2026-10-20", "'October 2026'!D3": 15.0}

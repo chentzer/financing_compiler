@@ -274,6 +274,7 @@ export class MockBackend implements Backend {
     await wait()
     const row = this.s.rows.find((r) => r.key === key)
     if (!row) throw new Error('That row is no longer in the sheet.')
+    fields = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as RowEdit
     Object.assign(row, fields)
     // Editing the month tab directly closes its card, as in the sheet.
     const card = this.s.cards.get(key)
@@ -290,6 +291,12 @@ export class MockBackend implements Backend {
       category: row.kind === 'spend' ? (row.category ?? '') : '', importance: row.kind === 'spend' ? (row.importance ?? '') : '',
       remarks: row.remarks ?? '', source: row.source ?? '', trip: row.kind === 'spend' ? row.trip || undefined : undefined,
     })
+  }
+
+  async deleteRow(key: string): Promise<void> {
+    await wait()
+    this.s.rows = this.s.rows.filter((r) => r.key !== key)
+    this.s.cards.delete(key)
   }
 
   async moveRow(key: string, trip: string | null): Promise<void> {

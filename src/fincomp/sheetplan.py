@@ -301,6 +301,9 @@ def set_cells(tab_q: str, kind: str, row: int, fields: dict) -> list[dict]:
     """values:batchUpdate entries writing only the given fields of one row
     (a field given as "" clears that cell)."""
     cols = SPEND_FIELDS if kind == "spend" else EARN_FIELDS
+    fields = dict(fields)
+    if isinstance(fields.get("date"), str) and fields["date"]:
+        fields["date"] = date.fromisoformat(fields["date"][:10])  # a real date, not text
     return [
         {"range": f"{tab_q}!{col}{row}", "values": [[cell(fields[name])]]}
         for name, col in cols.items()

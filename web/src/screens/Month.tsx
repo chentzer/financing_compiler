@@ -172,8 +172,10 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
 function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
   const { backend, changed, toast } = useData()
   const [f, setF] = useState({
-    item: row.item, category: row.category, importance: row.importance, remarks: row.remarks, source: row.source,
+    date: row.date, item: row.item, category: row.category, importance: row.importance, remarks: row.remarks, source: row.source,
   })
+  const [amount, setAmount] = useState(String(row.amount))
+  const [deleting, setDeleting] = useState(false)
   const trips = useLoad((b) => b.getSettings().then((s) => s.trips))
   const [moveTo, setMoveTo] = useState(row.trip ?? '')
   const [busy, setBusy] = useState(false)
@@ -181,12 +183,27 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
   const isSpend = row.kind === 'spend'
   const byHand = row.key.startsWith('manual:') // typed straight into the sheet: no key to find it by
 
+  async function remove() {
+    setBusy(true)
+    try {
+      await backend.deleteRow(row.key)
+      toast('Transaction deleted')
+      changed()
+      onClose()
+    } catch (e) {
+      setError(errorText(e))
+      setBusy(false)
+    }
+  }
+
   async function save() {
     setBusy(true)
     try {
-      await backend.editRow(row.key, isSpend ? f : { item: f.item, remarks: f.remarks, source: f.source })
+      const common = { date: f.date !== row.date ? f.date : undefined, amount: Number(amount) !== row.amount ? Number(amount) : undefined }
+      await backend.editRow(row.key, isSpend ? { ...f, ...common, date: common.date } : { item: f.item, remarks: f.remarks, source: f.source, ...common })
       if (isSpend && moveTo !== (row.trip ?? '')) await backend.moveRow(row.key, moveTo || null)
-      toast(moveTo !== (row.trip ?? '') ? (moveTo ? `Moved to ${moveTo}` : 'Moved back to its month') : 'Row updated')
+      const otherMonth = common.date && common.date.slice(0, 7) !== row.date.slice(0, 7)
+      toast(moveTo !== (row.trip ?? '') ? (moveTo ? `Moved to ${moveTo}` : 'Moved back to its month') : otherMonth ? `Moved to ${monthName(+common.date!.slice(0, 4), +common.date!.slice(5, 7))}` : 'Row updated')
       changed()
       onClose()
     } catch (e) {
@@ -208,6 +225,14 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
           {row.source}
           {row.trip ? ` · ${row.trip}` : ''}
         </p>
+        <div className="two">
+          <Field label="Date" hint={row.trip ? undefined : 'Another month moves it there'}>
+            <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required />
+          </Field>
+          <Field label="Amount (RM)">
+            <input type="number" inputMode="decimal" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          </Field>
+        </div>
         <Field label="Item">
           <input value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} />
         </Field>
@@ -237,11 +262,32 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
         )}
         {byHand && <p className="muted small">This row was typed straight into the sheet, so edit it there.</p>}
         {error && <p className="error-text">{error}</p>}
+        {!byHand && !deleting && (
+          <button type="button" className="btn ghost danger" onClick={() => setDeleting(true)}>
+            Delete transaction…
+          </button>
+        )}
+        {deleting && (
+          <div className="card stack tight danger-box">
+            <p className="small">
+              Delete <strong>{row.item}</strong> ({signedRm(row.amount, row.kind)}, {dayMonth(row.date)})? It's taken off the
+              sheet, and a later upload of the same statement won't add it back.
+            </p>
+            <div className="btn-row">
+              <button type="button" className="btn danger" disabled={busy} onClick={remove}>
+                {busy ? 'Deleting…' : 'Delete'}
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setDeleting(false)}>
+                Keep it
+              </button>
+            </div>
+          </div>
+        )}
         <div className="btn-row end">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || byHand || !f.item.trim()}>
+          <button className="btn primary" disabled={busy || byHand || !f.item.trim() || !(Number(amount) > 0) || !f.date}>
             {busy ? 'Saving…' : 'Save'}
           </button>
         </div>

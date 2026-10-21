@@ -81,7 +81,7 @@ export interface CardAnswer {
   sameForEvery?: boolean
 }
 
-export type RowEdit = Partial<Pick<Row, 'item' | 'category' | 'importance' | 'remarks' | 'source'>>
+export type RowEdit = Partial<Pick<Row, 'date' | 'item' | 'amount' | 'category' | 'importance' | 'remarks' | 'source'>>
 
 /** A transaction typed in by hand. */
 export interface NewRow {
@@ -313,6 +313,8 @@ export interface Backend {
 
   /** Add a transaction yourself; it can be edited and moved like any other. */
   addRow(row: NewRow): Promise<void>
+  /** Delete a row; a statement row is remembered (Settings › Removed) so an upload never adds it back. */
+  deleteRow(key: string): Promise<void>
   /** Move a spending row to a trip, or back to its month (`trip` null). */
   moveRow(key: string, trip: string | null): Promise<void>
 

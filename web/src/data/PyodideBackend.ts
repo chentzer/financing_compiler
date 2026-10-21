@@ -378,7 +378,10 @@ export class PyodideBackend implements Backend {
     const rows = await py<PyRow[]>('month_rows', [spend, earn])
     return rows.map((r) => {
       const key = r.key || `manual:${title}:${r.kind}:${r.row}`
-      if (r.key) this.rowsAt.set(key, { book: b, tab: title, trip: false })
+      if (r.key) {
+        this.rowsAt.set(key, { book: b, tab: title, trip: false })
+        this.rowDates.set(key, r.date ?? '')
+      }
       return {
         key, kind: r.kind, date: r.date ?? '', item: r.item, amount: r.amount,
         category: (r.category || '') as Category | '', importance: (r.importance || '') as Importance | '',
@@ -391,10 +394,24 @@ export class PyodideBackend implements Backend {
     if (key.startsWith('manual:')) throw new Error('This row was typed in by hand: edit it in Google Sheets.')
     const where = this.rowsAt.get(key) ?? this.cardsAt.get(key)
     if (!where) throw new Error('That row is no longer in the sheet. Reload and try again.')
+    const before = this.rowDates.get(key)
     await this.writeFields(where, key, fields)
     const card = this.cardsAt.get(key)?.card
     if (card && closes({ ...card, ...fields } as Card)) await this.removeCard(where.book, key)
+    // A new date in another month: the row moves to that month's tab.
+    if (fields.date && !where.trip && before && fields.date.slice(0, 7) !== before.slice(0, 7)) {
+      await this.moveRow(key, null)
+    }
   }
+
+  async deleteRow(key: string): Promise<void> {
+    if (key.startsWith('manual:')) throw new Error('This row was typed in by hand: delete it in Google Sheets.')
+    await this.notMine(key) // removed, and remembered so an upload doesn't bring it back
+    this.rowsAt.delete(key)
+  }
+
+  /** Each listed row's date, to tell when an edit moves it to another month. */
+  private rowDates = new Map<string, string>()
 
   private async writeFields(where: Where, key: string, fields: RowEdit | Record<string, string>): Promise<void> {
     // Its own tab first; the whole book if it was moved (e.g. to a trip) since.
