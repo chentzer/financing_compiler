@@ -1,5 +1,6 @@
 import { SocialLogin } from '@capgo/capacitor-social-login'
 import { ALLOWED_EMAILS, GOOGLE_SCOPES, NotAllowedError, type Auth, type User } from './Auth'
+import { getQuietRenew } from './renew'
 
 const USER_KEY = 'fincomp.user'
 // Google access tokens last an hour; ask again a little before.
@@ -23,6 +24,9 @@ export class NativeAuth implements Auth {
   private token?: { value: string; expires: number }
   private user: User | null
   private webClientId: string
+  /** Quiet renewal off: calls waiting for "Continue" (as on the web). */
+  private waiting?: { promise: Promise<string>; resolve: (t: string) => void }
+  private listeners = new Set<(needed: boolean) => void>()
 
   constructor(webClientId: string) {
     this.webClientId = webClientId
@@ -70,8 +74,33 @@ export class NativeAuth implements Auth {
 
   async getAccessToken(): Promise<string> {
     if (this.token && this.token.expires > Date.now() + 60_000) return this.token.value
+    // The first token after opening the app is fetched quietly either way;
+    // with quiet renewal off, each one after that waits for "Continue".
+    if (this.token && !getQuietRenew()) {
+      if (!this.waiting) {
+        let resolve!: (t: string) => void
+        const promise = new Promise<string>((r) => (resolve = r))
+        this.waiting = { promise, resolve }
+        this.listeners.forEach((l) => l(true))
+      }
+      return this.waiting.promise
+    }
     await this.login() // no picker when this account already allowed these scopes
     return this.token!.value
+  }
+
+  onReconnectNeeded(listener: (needed: boolean) => void): () => void {
+    this.listeners.add(listener)
+    if (this.waiting) listener(true)
+    return () => this.listeners.delete(listener)
+  }
+
+  async reconnect(): Promise<void> {
+    await this.login()
+    const w = this.waiting
+    this.waiting = undefined
+    w?.resolve(this.token!.value)
+    this.listeners.forEach((l) => l(false))
   }
 
   private init(): Promise<void> {

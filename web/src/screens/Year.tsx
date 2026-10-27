@@ -52,6 +52,7 @@ export function Year({ year }: { year?: number }) {
 
           <section className="card flush">
             <h3 className="list-title">Months</h3>
+            <div className="table-scroll">
             <table className="year-table pad-x">
               <thead>
                 <tr>
@@ -76,6 +77,7 @@ export function Year({ year }: { year?: number }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </section>
 
           {load.data.summary.byCategory.length > 0 && (

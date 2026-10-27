@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Auth, User } from './auth/Auth'
+import { getQuietRenew, setQuietRenew } from './auth/renew'
 import { DataProvider, errorText, useLoad } from './app/context'
 import { href, useRoute, type Route } from './app/router'
 import { createBackend } from './setup'
@@ -36,14 +37,17 @@ export default function App({ auth }: { auth: Auth }) {
   if (!user || !backend) return <SignIn auth={auth} onSignedIn={setUser} />
 
   const account = (
-    <section className="card account">
-      <div>
-        <div className="row-item">{user.name ?? user.email}</div>
-        <div className="muted small">{user.email}</div>
+    <section className="card stack">
+      <div className="account">
+        <div>
+          <div className="row-item">{user.name ?? user.email}</div>
+          <div className="muted small">{user.email}</div>
+        </div>
+        <button className="btn small" onClick={() => auth.signOut().then(() => setUser(null))}>
+          Sign out
+        </button>
       </div>
-      <button className="btn small" onClick={() => auth.signOut().then(() => setUser(null))}>
-        Sign out
-      </button>
+      <QuietRenewToggle />
     </section>
   )
 
@@ -243,8 +247,9 @@ function Reconnect({ auth, user, onSignOut }: { auth: Auth; user: User; onSignOu
         <div className="stack">
           <h2>Continue with Google</h2>
           <p className="muted">
-            For your security, Google access lasts about an hour. Continue as <strong>{user.email}</strong> to keep
-            going.
+            Google gives FinMerge access an hour at a time
+            {getQuietRenew() ? '' : ', and quiet renewal is off in Settings'}. Continue as <strong>{user.email}</strong>{' '}
+            to keep going.
           </p>
           {error && <p className="error-text">{error}</p>}
           <div className="btn-row end">
@@ -273,6 +278,32 @@ function Reconnect({ auth, user, onSignOut }: { auth: Auth; user: User; onSignOu
         </div>
       </div>
     </div>
+  )
+}
+
+/** Settings › account: whether Google access renews by itself or asks every hour (this device). */
+function QuietRenewToggle() {
+  const [on, setOn] = useState(getQuietRenew)
+  return (
+    <label className="toggle">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setQuietRenew(e.target.checked)
+          setOn(e.target.checked)
+        }}
+      />
+      <span className="switch" aria-hidden />
+      <span>
+        Renew Google access quietly
+        <span className="muted small block">
+          {on
+            ? 'Google gives access an hour at a time; FinMerge renews it in the background as you use it.'
+            : 'FinMerge asks you to Continue with Google every hour.'}
+        </span>
+      </span>
+    </label>
   )
 }
 

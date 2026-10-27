@@ -1,4 +1,5 @@
 import { ALLOWED_EMAILS, GOOGLE_SCOPES, NotAllowedError, type Auth, type User } from './Auth'
+import { getQuietRenew } from './renew'
 
 // Minimal typings for the parts of Google Identity Services we use.
 interface TokenResponse {
@@ -55,8 +56,9 @@ const RENEW_BEFORE_MS = 15 * 60_000
  * agreed) that browsers only allow straight after a tap. So the app stays
  * signed in by renewing on your taps: in the last 15 minutes of the hour,
  * the next tap anywhere quietly gets a new token. Only after more than an
- * hour away does a call have to wait for "Continue". The Android app renews
- * without any of this (NativeAuth).
+ * hour away does a call have to wait for "Continue". With quiet renewal off
+ * in Settings (renew.ts), taps renew nothing and "Continue" comes every
+ * hour. The Android app renews without a popup (NativeAuth).
  */
 export class GoogleWebAuth implements Auth {
   readonly kind = 'google-web' as const
@@ -86,6 +88,7 @@ export class GoogleWebAuth implements Auth {
   /** A tap is the one moment a popup is allowed: renew the token while it's nearly used up. */
   private renewOnTap(): void {
     if (!this.user || this.pending || this.waiting) return // "Continue" handles a token already gone
+    if (!getQuietRenew()) return // turned off in Settings: "Continue" every hour
     if (this.token && this.token.expires > Date.now() + RENEW_BEFORE_MS) return
     this.request('').catch(() => undefined) // closed or blocked: try again on a later tap
   }

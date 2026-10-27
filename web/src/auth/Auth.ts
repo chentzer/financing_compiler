@@ -42,10 +42,11 @@ export interface Auth {
   /** A valid OAuth access token, refreshing it if needed. */
   getAccessToken(): Promise<string>
   /**
-   * Web only: browsers block Google's popup unless it comes from a click.
-   * When a token is needed and none is usable (page reopened, or the hour
-   * ran out), calls wait and `listener(true)` fires; the app shows a
-   * "Continue" button that calls reconnect(). Returns an unsubscribe.
+   * Web: browsers block Google's popup unless it comes from a click.
+   * Android: only with quiet renewal off (renew.ts). When a token is needed
+   * and none is usable (page reopened, or the hour ran out), calls wait and
+   * `listener(true)` fires; the app shows a "Continue" button that calls
+   * reconnect(). Returns an unsubscribe.
    */
   onReconnectNeeded?(listener: (needed: boolean) => void): () => void
   reconnect?(): Promise<void>

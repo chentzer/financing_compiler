@@ -5,6 +5,8 @@
   --text: #17201e;
   --muted: #5f6b68;
   --border: #dde3e1;
+  /* Outlines that show a control is there (inputs, chips, switches): 3:1 on every background. */
+  --control: #7f8b88;
   --accent: #0f766e;
   --accent-ink: #ffffff;
   --accent-soft: #d5efec;
@@ -32,6 +34,7 @@
     --text: #e7eeec;
     --muted: #93a19d;
     --border: #2b3836;
+    --control: #677874;
     --accent: #2dd4bf;
     --accent-ink: #062320;
     --accent-soft: #123b37;
@@ -81,10 +84,10 @@ input,
 select {
   width: 100%;
   padding: 11px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control);
   border-radius: 10px;
   background: var(--surface);
-  min-height: 44px;
+  min-height: 48px;
 }
 input:focus-visible,
 select:focus-visible,
@@ -172,6 +175,10 @@ a:focus-visible {
 .subtab {
   flex: 1;
   min-width: max-content;
+  min-height: 44px; /* + the 2px track padding: 48 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 7px 12px;
   border-radius: 9px;
   text-align: center;
@@ -199,8 +206,8 @@ a:focus-visible {
   inset: auto 0 0 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -224,7 +231,11 @@ a:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.72rem;
+  /* Grows with the text size, but tab bars cap their labels (as Android and iOS do) so all five fit. */
+  font-size: min(0.72rem, 15px);
+}
+.bottom-nav .nav-icon {
+  font-size: min(1.3rem, 26px);
 }
 /* Upload, the main action: raised in the middle, where the thumb rests. */
 .bottom-nav .nav.primary .nav-icon {
@@ -369,9 +380,9 @@ a:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 48px;
   padding: 10px 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control);
   border-radius: 10px;
   background: var(--surface);
   font-weight: 600;
@@ -398,7 +409,7 @@ a:focus-visible {
   color: var(--neg);
 }
 .btn.small {
-  min-height: 36px;
+  min-height: 48px; /* small text, full-size target */
   padding: 6px 12px;
   font-size: 0.85rem;
 }
@@ -425,8 +436,8 @@ a:focus-visible {
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -486,11 +497,12 @@ a:focus-visible {
   font-size: 1.15rem;
 }
 .pair.three {
-  grid-template-columns: repeat(3, 1fr);
+  /* Three across when they fit, fewer when the text is large. */
+  grid-template-columns: repeat(auto-fit, minmax(7.2em, 1fr));
 }
 .pair.three .amount {
   font-size: 0.9rem;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .summary-card h3 {
   margin: 4px 0 -6px;
@@ -502,6 +514,11 @@ a:focus-visible {
 .bar-amt.neg,
 .year-table .neg {
   color: var(--neg, #c0392b);
+}
+/* Wide tables scroll inside their card, never the page. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 .year-table {
   width: 100%;
@@ -532,6 +549,9 @@ a:focus-visible {
   gap: 8px;
 }
 .link-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
   color: var(--accent);
   font-weight: 600;
   font-size: 0.9rem;
@@ -729,9 +749,9 @@ a:focus-visible {
   gap: 6px;
 }
 .chip {
-  min-height: 38px;
-  padding: 6px 13px;
-  border: 1px solid var(--border);
+  min-height: 48px;
+  padding: 6px 14px;
+  border: 1px solid var(--control);
   border-radius: 999px;
   background: var(--surface);
   cursor: pointer;
@@ -775,6 +795,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 48px;
   cursor: pointer;
   font-size: 0.92rem;
 }
@@ -790,7 +811,7 @@ a:focus-visible {
   width: 42px;
   height: 24px;
   border-radius: 12px;
-  background: var(--border);
+  background: var(--control);
   transition: background 0.2s;
 }
 .switch::after {
@@ -885,6 +906,9 @@ a:focus-visible {
 .final-row .amount {
   font-size: 1.5rem;
 }
+.bars {
+  container-type: inline-size;
+}
 .bars li {
   display: grid;
   grid-template-columns: 7.5em 1fr auto;
@@ -892,6 +916,17 @@ a:focus-visible {
   gap: 10px;
   padding: 3px 0;
   font-size: 0.85rem;
+}
+/* Large text / narrow card: name and amount on one line, the bar under them. */
+@container (max-width: 24em) {
+  .bars li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
+  }
+  .bars li .bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 .bars li.zero {
   color: var(--muted);
@@ -944,6 +979,7 @@ button.row:hover {
 .row-date {
   flex: none;
   width: 3.4em;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.82rem;
 }
@@ -955,9 +991,12 @@ button.row:hover {
 }
 .row-item {
   font-weight: 600;
+  /* Wraps (two lines at most) instead of being cut at large text sizes. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .row-sub {
   display: flex;
@@ -972,6 +1011,9 @@ button.row:hover {
 }
 .row-amt {
   flex: none;
+  max-width: 45%;
+  text-align: right;
+  overflow-wrap: anywhere;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -1000,7 +1042,10 @@ button.row:hover {
 }
 .tab {
   flex: none;
-  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 16px;
   border-radius: 999px;
   background: var(--surface-2);
   font-size: 0.9rem;
@@ -1251,5 +1296,56 @@ button.row:hover {
     z-index: 4;
     padding: 10px 0;
     background: var(--surface);
+  }
+}
+.block {
+  display: block;
+}
+
+/* Month links in the Year table: full-height tap targets. */
+.year-table td a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 48px;
+}
+.fab-mobile {
+  max-width: calc(100vw - 32px);
+}
+/* Toast with an Undo button. */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.toast .undo {
+  min-height: 48px;
+  padding: 0 12px;
+  margin: -10px -8px -10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-soft);
+  font-weight: 700;
+  cursor: pointer;
+}
+/* Large text: the header and sub-tabs stay inside the screen. */
+.topbar-row {
+  min-width: 0;
+}
+.topbar h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-link {
+  flex: none;
+}
+.subtabs {
+  min-width: 0;
+  max-width: 100%;
+}
+@container (max-width: 24em) {
+  .bars .bar-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }

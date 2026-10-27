@@ -102,6 +102,7 @@ function YearCards({ years }: { years: YearSummary[] }) {
           To date · {first === now ? now : `${first} – ${now}`}
         </div>
         <Totals earnings={sum('earnings')} spendings={sum('spendings')} trips={sum('trips')} final={sum('final')} />
+        <div className="table-scroll">
         <table className="year-table">
           <thead>
             <tr>
@@ -122,6 +123,7 @@ function YearCards({ years }: { years: YearSummary[] }) {
             ))}
           </tbody>
         </table>
+        </div>
         <a className="link-hint" href={href({ name: 'trips' })}>
           See trips →
         </a>

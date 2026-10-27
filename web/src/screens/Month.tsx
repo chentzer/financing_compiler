@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
+import { useStored } from '../app/store'
 import { dayMonth, monthName, newestFirst, rm, signedRm } from '../app/format'
 import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
@@ -56,9 +57,11 @@ function MonthBody({ year, month }: { year: number; month: number }) {
   const [editing, setEditing] = useState<Row>()
   const [adding, setAdding] = useState(false)
 
+  const [hidden] = useStored<string[]>('rows.hidden', [])
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
-  const { summary, rows } = load.data
+  const { summary } = load.data
+  const rows = load.data.rows.filter((r) => !hidden.includes(r.key)) // deleted, waiting for Undo
   const spend = rows.filter((r) => r.kind === 'spend' && !r.trip)
   const earn = rows.filter((r) => r.kind === 'earn')
   const trip = rows.filter((r) => r.trip)
@@ -170,12 +173,12 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
 }
 
 function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
-  const { backend, changed, toast } = useData()
+  const { backend, changed, toast, later } = useData()
+  const [, setHidden] = useStored<string[]>('rows.hidden', [])
   const [f, setF] = useState({
     date: row.date, item: row.item, category: row.category, importance: row.importance, remarks: row.remarks, source: row.source,
   })
   const [amount, setAmount] = useState(String(row.amount))
-  const [deleting, setDeleting] = useState(false)
   const trips = useLoad((b) => b.getSettings().then((s) => s.trips))
   const [moveTo, setMoveTo] = useState(row.trip ?? '')
   const [busy, setBusy] = useState(false)
@@ -183,17 +186,11 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
   const isSpend = row.kind === 'spend'
   const byHand = row.key.startsWith('manual:') // typed straight into the sheet: no key to find it by
 
-  async function remove() {
-    setBusy(true)
-    try {
-      await backend.deleteRow(row.key)
-      toast('Transaction deleted')
-      changed()
-      onClose()
-    } catch (e) {
-      setError(errorText(e))
-      setBusy(false)
-    }
+  function remove() {
+    // Gone from the list now; deleted in Google after a few seconds unless undone.
+    setHidden((h) => [...h, row.key])
+    onClose()
+    later('Transaction deleted', () => backend.deleteRow(row.key), () => setHidden((h) => h.filter((k) => k !== row.key)))
   }
 
   async function save() {
@@ -262,26 +259,10 @@ function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
         )}
         {byHand && <p className="muted small">This row was typed straight into the sheet, so edit it there.</p>}
         {error && <p className="error-text">{error}</p>}
-        {!byHand && !deleting && (
-          <button type="button" className="btn ghost danger" onClick={() => setDeleting(true)}>
-            Delete transaction…
+        {!byHand && (
+          <button type="button" className="btn ghost danger" onClick={remove}>
+            Delete transaction
           </button>
-        )}
-        {deleting && (
-          <div className="card stack tight danger-box">
-            <p className="small">
-              Delete <strong>{row.item}</strong> ({signedRm(row.amount, row.kind)}, {dayMonth(row.date)})? It's taken off the
-              sheet, and a later upload of the same statement won't add it back.
-            </p>
-            <div className="btn-row">
-              <button type="button" className="btn danger" disabled={busy} onClick={remove}>
-                {busy ? 'Deleting…' : 'Delete'}
-              </button>
-              <button type="button" className="btn ghost" onClick={() => setDeleting(false)}>
-                Keep it
-              </button>
-            </div>
-          </div>
         )}
         <div className="btn-row end">
           <button type="button" className="btn" onClick={onClose}>

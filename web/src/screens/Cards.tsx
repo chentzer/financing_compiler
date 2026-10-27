@@ -7,31 +7,18 @@ import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading } from '../components/ui'
 import { IMPORTANCE, type Card, type Category, type Importance } from '../data/Backend'
 
-/** Answers still being written to Google, one at a time (two at once could pick the wrong To Update row). */
-let writing: Promise<unknown> = Promise.resolve()
-let pending = 0
-
 export function Cards() {
-  const { changed, toast } = useData()
+  const { later } = useData()
   const load = useLoad((b) => b.listCards())
   // Cards passed with "Later" in this visit; they stay open for next time.
   const [passed, setPassed] = useState<string[]>([])
-  // Cards answered: hidden at once while their answer is written in the background.
+  // Cards answered: hidden at once; the answer is written a few seconds later unless undone.
   const [gone, setGone] = useStored<string[]>('cards.gone', [])
 
-  /** Show the next card now; write this one's answer behind it. */
-  function done(card: Card, write: () => Promise<void>) {
+  /** Show the next card now; write this one's answer behind it (with Undo). */
+  function done(card: Card, message: string, write: () => Promise<void>) {
     setGone((g) => [...g, card.key])
-    pending++
-    writing = writing.then(write).then(
-      () => undefined,
-      (e) => {
-        setGone((g) => g.filter((k) => k !== card.key)) // back in the list, to try again
-        toast(`Couldn't save "${card.item}": ${errorText(e)}`)
-      },
-    ).finally(() => {
-      if (--pending === 0) changed() // everything written: other screens pick it up
-    })
+    later(message, write, () => setGone((g) => g.filter((k) => k !== card.key)))
   }
 
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
@@ -78,13 +65,13 @@ export function Cards() {
           <div style={{ width: `${((n - 1) / cards.length) * 100}%` }} />
         </div>
       </div>
-      <CardForm key={card.key} card={card} onLater={() => setPassed((p) => [...p, card.key])} onDone={(write) => done(card, write)} />
+      <CardForm key={card.key} card={card} onLater={() => setPassed((p) => [...p, card.key])} onDone={(message, write) => done(card, message, write)} />
     </div>
   )
 }
 
-function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDone(write: () => Promise<void>): void }) {
-  const { backend, toast } = useData()
+function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDone(message: string, write: () => Promise<void>): void }) {
+  const { backend } = useData()
   const needsPurpose = card.needs.includes('purpose')
   const needsCategory = card.needs.includes('category')
   const isSpend = card.kind === 'spend'
@@ -132,12 +119,11 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         sameForEvery: same && complete,
       }
       // Your answers so far go with it; the card is closed either way.
-      onDone(async () => {
+      onDone(`Moved to ${to}`, async () => {
         if (complete) await backend.saveCard(card.key, answer)
         else await backend.keepAsIs(card.key)
         await backend.moveRow(card.key, to)
       })
-      toast(`Moved to ${to}`)
       return
     }
     if (what === 'later') {
@@ -159,14 +145,11 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         importance: isSpend ? importance : undefined,
         sameForEvery: same,
       }
-      onDone(() => backend.saveCard(card.key, answer))
-      toast(same ? `Saved, and added a rule for ${who}` : 'Saved')
+      onDone(same ? `Saved, and added a rule for ${who}` : 'Saved', () => backend.saveCard(card.key, answer))
     } else if (what === 'skip') {
-      onDone(() => backend.keepAsIs(card.key))
-      toast('Skipped: kept as recorded')
+      onDone('Skipped: kept as recorded', () => backend.keepAsIs(card.key))
     } else {
-      onDone(() => backend.notMine(card.key))
-      toast('Removed: not yours')
+      onDone('Removed: not yours', () => backend.notMine(card.key))
     }
   }
 

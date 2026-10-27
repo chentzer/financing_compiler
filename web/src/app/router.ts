@@ -67,15 +67,39 @@ export function go(r: Route): void {
   window.location.hash = href(r)
 }
 
+/** Where each page was scrolled to, so coming back to it lands in the same place. */
+const scrolled = new Map<string, number>()
+
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash))
   useEffect(() => {
+    let page = window.location.hash
+    const onScroll = () => {
+      // Mid-switch the address already says the next page while this one is reset to the top: skip that.
+      if (window.location.hash === page) scrolled.set(page, window.scrollY)
+    }
     const on = () => {
-      setRoute(parseRoute(window.location.hash))
-      window.scrollTo(0, 0)
+      page = window.location.hash
+      setRoute(parseRoute(page))
+      // The page may still be drawing: keep trying until it is tall enough (up to a second).
+      const want = scrolled.get(page) ?? 0
+      const until = Date.now() + 1000
+      const tryScroll = () => {
+        window.scrollTo(0, want)
+        if (Math.abs(window.scrollY - want) > 2 && Date.now() < until) setTimeout(tryScroll, 30)
+      }
+      window.scrollTo(0, want)
+      setTimeout(tryScroll, 0)
     }
     window.addEventListener('hashchange', on)
-    return () => window.removeEventListener('hashchange', on)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    // Also on every tap, before a link can change the page (scroll events can lag behind).
+    window.addEventListener('click', onScroll, true)
+    return () => {
+      window.removeEventListener('hashchange', on)
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('click', onScroll, true)
+    }
   }, [])
   return route
 }
