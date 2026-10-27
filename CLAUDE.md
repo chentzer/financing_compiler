@@ -109,6 +109,47 @@ gspread (Pyodide check: see README).
   removes the row from its block and adds its key to Settings › Removed so
   it never comes back.
 
+## App UI rules (from the user; check every screen change against them)
+
+The app is used mostly on an Android phone. Before calling UI work done,
+check it at 375px wide, in light and dark, and at 200% text size.
+
+1. **Platform guides.** Follow Material Design (Android) and Apple's HIG
+   (iOS). Matching how the platform already behaves means less to learn.
+2. **Navigation.** 3-5 bottom tabs for the top-level sections (now: Home,
+   Accounts, Upload, To Update, Sheets). A hub's own pages are sub-tabs
+   across its top, all visible, never hidden behind "More". Tabs only
+   navigate: an action (add, save, upload now) is a button on the screen,
+   never a tab. Rarely used places (Settings) go in the header, not the
+   bar. Desktop (900px+) uses the side nav with every page listed.
+3. **Touch targets.** Every tappable thing is at least 48x48 px on phones
+   (Android 48dp; Apple 44pt). The icon or text can be smaller: padding
+   makes up the rest. Never below 24x24 (WCAG 2.2). This includes text
+   links, table links, chips and sub-tabs.
+4. **Accessibility (WCAG 2.2 AA).** Contrast 4.5:1 for normal text, 3:1
+   for large text, and 3:1 for whatever shows a control is there (input
+   and chip outlines, switch tracks, focus rings), in both themes. Check
+   new colours with a contrast calculation, not by eye. No orientation
+   lock.
+5. **Large text.** Nothing assumes a fixed font size: at 200% text the page
+   must not scroll sideways, the bottom bar must still show every tab, and
+   text wraps instead of being cut. Use rem/em and min-height, not fixed
+   pixel heights, for anything holding text.
+6. **Performance (Android vitals).** Cold start under 5 s, warm under 2 s,
+   hot under 1.5 s. Show something useful before Python and Google calls
+   finish; never block the first screen on work only uploads need. No
+   crashes or frozen screens: long work runs in the background with
+   progress.
+7. **UX (Shneiderman).** Feedback for every action (a toast, progress or
+   a changed screen). Undo is easy: prefer an "Undo" on the toast over
+   an "are you sure?" step for anything that can be reversed. Prevent
+   errors (disable Save until valid; say what's wrong next to the field).
+   Don't make the user remember things between screens. Keep screens
+   simple and split long forms into steps.
+8. **Saved state.** Coming back to a tab restores its scroll position,
+   filters, chosen month/year and sub-tab, and any half-done work (e.g.
+   an upload in progress).
+
 ## Recording rules (from the user; apply to every parser)
 
 1. Ignore money moving between the user's own accounts, at the same bank
