@@ -37,3 +37,6 @@ NOTES.local.md
 .signing/
 *.jks
 *.keystore
+
+# graphify knowledge graph (local, generated)
+graphify-out/
