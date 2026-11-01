@@ -436,14 +436,20 @@ export class PyodideBackend implements Backend {
       if (!(await this.g.tabs(b.id)).some((t) => t.title === TO_UPDATE)) return null
       return (await this.g.read(b.id, [`${quote(TO_UPDATE)}!A2:H`], 'UNFORMATTED_VALUE'))[0]
     }))
+    await this.useSettings()
     for (const [i, b] of books.entries()) {
       const rows = found[i]
       if (!rows) continue
-      for (const c of await py<PyCard[]>('cards', [rows])) {
+      const cards = await py<PyCard[]>('cards', [rows])
+      // Where each one is from (bank or wallet): the Source column of its row, read from just those tabs.
+      const ranges = await py<string[]>('book_ranges', [b.year, [...new Set(cards.map((c) => c.tab))]])
+      const vals = await this.g.read(b.id, ranges, 'UNFORMATTED_VALUE')
+      const sources = await py<Record<string, string>>('row_sources', [Object.fromEntries(ranges.map((r, j) => [r, vals[j]]))])
+      for (const c of cards) {
         const person = /^(To|From) /.test(c.who)
         const card: Card = {
           key: c.key, kind: c.amount < 0 ? 'spend' : 'earn', date: c.date ?? '', item: c.recordedAs,
-          amount: Math.abs(c.amount), category: '', importance: '', remarks: c.who, source: '',
+          amount: Math.abs(c.amount), category: '', importance: '', remarks: c.who, source: sources[c.key] ?? '',
           needs: [...(c.needsPurpose ? ['purpose' as const] : []), ...(c.needsCategory ? ['category' as const] : [])],
           statement: c.statement,
           counterparty: person ? c.statement.split(' - ')[0].replace(/^(From|To) /, '') : '',

@@ -97,6 +97,15 @@ def cards(to_update_rows: list[list]) -> list[dict]:
     return sheetplan.cards_from_values(to_update_rows)
 
 
+def row_sources(values: dict) -> dict[str, str]:
+    """key -> Source (bank or wallet) of each row in `values` (book_ranges reads), for the cards."""
+    out = {}
+    for key, (_, kind, _, r) in sheetplan.locate(values).items():
+        i = 3 if kind == "earn" else 5  # Earnings P-U: Source is S; Spendings A-H: F
+        out[key] = str(r[i]).strip() if len(r) > i else ""
+    return out
+
+
 def tab_ranges(tab_title: str, trip: bool = False) -> list[str]:
     q = sheetplan.quote(tab_title)
     return [f"{q}!A4:H"] if trip else [f"{q}!A3:H", f"{q}!P3:U"]

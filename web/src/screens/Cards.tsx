@@ -5,7 +5,7 @@ import { shortDate, signedRm } from '../app/format'
 import { href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading } from '../components/ui'
-import { IMPORTANCE, type Card, type Category, type Importance } from '../data/Backend'
+import { IMPORTANCE, STATEMENT_SOURCES, type Card, type Category, type Importance } from '../data/Backend'
 
 export function Cards() {
   const { later } = useData()
@@ -163,11 +163,13 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
     >
       <div className="uc-top">
         <span className="muted">{shortDate(card.date)}</span>
-        <span className="pill">{card.source}</span>
+        {card.source && <span className="pill">{card.source}</span>}
       </div>
       <div className={isSpend ? 'uc-amount neg' : 'uc-amount pos'}>{signedRm(card.amount, card.kind)}</div>
       {card.remarks && <div className="uc-who">{card.remarks}</div>}
       <dl className="uc-meta">
+        <dt>Source</dt>
+        <dd>{sourceName(card.source) || <span className="muted">Not recorded</span>}</dd>
         <dt>Statement</dt>
         <dd className="mono">{card.statement}</dd>
         <dt>Recorded as</dt>
@@ -249,4 +251,13 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       </div>
     </form>
   )
+}
+
+/** "tng" or "TNG" → "Touch 'n Go eWallet"; anything else (e.g. "Cash") as it is. */
+function sourceName(source: string): string {
+  const s = source.trim()
+  const known = STATEMENT_SOURCES.find((x) => x.key === s.toLowerCase() || x.label.toLowerCase() === s.toLowerCase())
+  if (known) return known.label
+  if (/^tng$/i.test(s)) return "Touch 'n Go eWallet"
+  return s
 }

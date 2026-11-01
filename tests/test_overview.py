@@ -79,3 +79,10 @@ def test_edit_writes_date_and_amount_cells():
     values = {"'October 2026'!A3:H": [[46300, "Lunch", "Food", 12.5, "", "TNG", "", "k1"]], "'October 2026'!P3:U": []}
     data, _ = sheetplan.edit_plan("k1", values, {"October 2026": 1}, {"date": "2026-10-20", "amount": 15.0})
     assert {d["range"]: d["values"][0][0] for d in data} == {"'October 2026'!A3": "2026-10-20", "'October 2026'!D3": 15.0}
+
+
+def test_row_sources_for_cards():
+    from fincomp import webapi
+    values = {"'October 2026'!A3:H": [[46300, "Transfer", "", 45, "", "TNG", "", "k1"]],
+              "'October 2026'!P3:U": [[46301, "Transfer", 120, "Maybank", "", "k2"]]}
+    assert webapi.row_sources(values) == {"k1": "TNG", "k2": "Maybank"}
