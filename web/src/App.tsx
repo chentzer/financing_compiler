@@ -12,6 +12,7 @@ import { Sheets } from './screens/Sheets'
 import { Trips } from './screens/Trips'
 import { Year } from './screens/Year'
 import { listenForShares } from './app/share'
+import { startTour, Tour } from './components/Tour'
 import { useStored } from './app/store'
 import type { UploadProgress } from './data/Backend'
 import { Upload } from './screens/Upload'
@@ -48,6 +49,9 @@ export default function App({ auth }: { auth: Auth }) {
         </button>
       </div>
       <QuietRenewToggle />
+      <button type="button" className="btn" onClick={startTour}>
+        Replay the tour
+      </button>
     </section>
   )
 
@@ -98,7 +102,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
         {/* Wide screens have room: every place is in view, sub-pages under their hub. */}
         <nav className="side-nav" aria-label="Main">
           {tabs.map((t) => (
-            <div key={t.key} className="side-group">
+            <div key={t.key} className="side-group" data-tour={t.key in SUBS ? `subtabs-${t.key}` : undefined}>
               <NavLink tab={t} on={hub === t.key && !(t.key in SUBS)} />
               {t.key in SUBS &&
                 SUBS[t.key as keyof typeof SUBS].map((s) => (
@@ -109,7 +113,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
                 ))}
             </div>
           ))}
-          <a href={href({ name: 'settings' })} className={route.name === 'settings' ? 'nav on push-down' : 'nav push-down'}>
+          <a href={href({ name: 'settings' })} className={route.name === 'settings' ? 'nav on push-down' : 'nav push-down'} data-tour="settings">
             <span className="nav-icon" aria-hidden>⚙</span>
             <span className="nav-label">Settings</span>
           </a>
@@ -121,12 +125,12 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
             <h1>{TITLES[route.name]}</h1>
             {demo && <span className="pill warn">Demo data</span>}
             {/* Settings is rarely needed: one tap away up here, not a bottom tab. */}
-            <a className={route.name === 'settings' ? 'icon-btn settings-link on' : 'icon-btn settings-link'} href={href({ name: 'settings' })} aria-label="Settings">
+            <a className={route.name === 'settings' ? 'icon-btn settings-link on' : 'icon-btn settings-link'} href={href({ name: 'settings' })} aria-label="Settings" data-tour="settings">
               ⚙
             </a>
           </div>
           {subs && (
-            <nav className="subtabs" aria-label={hub === 'accounts' ? 'Accounts' : 'Sheets'}>
+            <nav className="subtabs" aria-label={hub === 'accounts' ? 'Accounts' : 'Sheets'} data-tour={`subtabs-${hub}`}>
               {subs.map((s) => (
                 <a key={s.label} href={href(s.route)} className={route.name === s.route.name ? 'subtab on' : 'subtab'}
                   aria-current={route.name === s.route.name ? 'page' : undefined}>
@@ -148,6 +152,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           {route.name === 'settings' && <Settings tab={route.tab} account={account} />}
         </div>
       </main>
+      <Tour />
       <nav className="bottom-nav" aria-label="Main">
         {tabs.map((t) => (
           <NavLink key={t.key} tab={t} on={hub === t.key} />
@@ -190,7 +195,7 @@ const SUBS: Record<'accounts' | 'sheets', { route: Route; label: string }[]> = {
 function NavLink({ tab, on }: { tab: Tab; on: boolean }) {
   const cls = ['nav', on && 'on', tab.primary && 'primary', tab.working && 'working'].filter(Boolean).join(' ')
   return (
-    <a href={href(tab.route)} className={cls} aria-current={on ? 'page' : undefined}>
+    <a href={href(tab.route)} className={cls} aria-current={on ? 'page' : undefined} data-tour={`tab-${tab.key}`}>
       <span className="nav-icon" aria-hidden>
         {tab.icon}
       </span>

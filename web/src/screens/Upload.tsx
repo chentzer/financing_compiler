@@ -85,6 +85,7 @@ function UploadInner() {
     <div className="stack">
       <div
         className={`card${dragging ? ' drop-target' : ''}`}
+        data-tour="upload-pick"
         onDragOver={(e) => {
           e.preventDefault()
           if (!busy) setDragging(true)

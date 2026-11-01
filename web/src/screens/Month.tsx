@@ -28,7 +28,7 @@ export function Month({ year, month }: { year?: number; month?: number }) {
 
   return (
     <div className="stack">
-      <div className="month-nav">
+      <div className="month-nav" data-tour="month-nav">
         <a className={prev ? 'icon-btn' : 'icon-btn disabled'} href={prev ? href({ name: 'month', ...prev }) : undefined} aria-label="Previous month">
           ‹
         </a>
@@ -71,7 +71,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
       <Summary s={summary} />
       <div className="stack">
         <div className="btn-row end">
-          <button className="btn fab-mobile" onClick={() => setAdding(true)} aria-label="Add transaction">
+          <button className="btn fab-mobile" onClick={() => setAdding(true)} aria-label="Add transaction" data-tour="add-row">
             + Add transaction
           </button>
         </div>
@@ -148,9 +148,9 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
         <p className="muted pad">None.</p>
       ) : (
         <ul className="rows">
-          {newestFirst(rows).map((r) => (
+          {newestFirst(rows).map((r, i) => (
             <li key={r.key}>
-              <button className="row" onClick={() => onTap(r)}>
+              <button className="row" onClick={() => onTap(r)} data-tour={i === 0 ? 'row' : undefined}>
                 <span className="row-date">{dayMonth(r.date)}</span>
                 <span className="row-main">
                   <span className="row-item">{r.item}</span>

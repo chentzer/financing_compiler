@@ -225,7 +225,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
 
       {error && <p className="error-text">{error}</p>}
 
-      <div className="uc-actions">
+      <div className="uc-actions" data-tour="card-actions">
         {isSpend && tripList.length > 0 && (
           <button type="button" className="btn" disabled={busy} onClick={() => setMoving((m) => !m)}
             title="Put this spending on a trip's tab">

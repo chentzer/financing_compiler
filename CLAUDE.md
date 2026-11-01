@@ -149,6 +149,14 @@ check it at 375px wide, in light and dark, and at 200% text size.
 8. **Saved state.** Coming back to a tab restores its scroll position,
    filters, chosen month/year and sub-tab, and any half-done work (e.g.
    an upload in progress).
+9. **First-launch tour** (`web/src/components/Tour.tsx`). Runs once per
+   device after sign-in, spotlights the real control (`data-tour="..."`
+   on it) with one sentence per step, "3 of 13" progress and Next / Back
+   / Skip; replay from Settings. When a tab or feature is added, moved or
+   removed, update `STEPS` (and its `data-tour` markers) in the same
+   change: a feature isn't done until the tour covers it. Check it at
+   375px and at 200% text: no card covers its spotlight or leaves the
+   screen.
 
 ## Recording rules (from the user; apply to every parser)
 

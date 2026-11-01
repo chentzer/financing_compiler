@@ -1349,3 +1349,68 @@ button.row:hover {
     overflow-wrap: anywhere;
   }
 }
+
+/* ---------- first-launch tour (components/Tour.tsx) ---------- */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+.tour-dim {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+}
+/* The real control shows through a hole; everything else is dimmed and can't be tapped. */
+.tour-hole {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.6);
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  transition: top 0.2s, left 0.2s, width 0.2s, height 0.2s;
+  pointer-events: none;
+}
+.tour::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+}
+.tour-card {
+  position: fixed;
+  width: min(22rem, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--control);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+}
+.tour-card:focus {
+  outline: none;
+}
+.tour-card h2 {
+  margin: 4px 0 6px;
+  font-size: 1.15rem;
+}
+.tour-card p {
+  margin: 0 0 12px;
+}
+.tour-progress {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.tour-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole {
+    transition: none;
+  }
+}
