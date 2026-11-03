@@ -58,10 +58,15 @@ function MonthBody({ year, month }: { year: number; month: number }) {
   const [adding, setAdding] = useState(false)
 
   const [hidden] = useStored<string[]>('rows.hidden', [])
+  // Date filter, kept per month while the app is open (coming back shows the same range).
+  const ym = `${year}-${String(month).padStart(2, '0')}`
+  const [range, setRange] = useStored<{ from: string; to: string }>(`month.range.${ym}`, { from: '', to: '' })
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
   const { summary } = load.data
-  const rows = load.data.rows.filter((r) => !hidden.includes(r.key)) // deleted, waiting for Undo
+  const all = load.data.rows.filter((r) => !hidden.includes(r.key)) // deleted, waiting for Undo
+  const inRange = (d: string) => (!range.from || d >= range.from) && (!range.to || d <= range.to)
+  const rows = all.filter((r) => inRange(r.date))
   const spend = rows.filter((r) => r.kind === 'spend' && !r.trip)
   const earn = rows.filter((r) => r.kind === 'earn')
   const trip = rows.filter((r) => r.trip)
@@ -75,6 +80,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
             + Add transaction
           </button>
         </div>
+        <DateFilter year={year} month={month} range={range} onChange={setRange} shown={rows} total={all.length} />
         {/* Side by side when there's room, as in the sheet; stacked on a phone. */}
         <div className="lists-pair">
           <RowList title="Spendings" rows={spend} onTap={setEditing} />
@@ -85,6 +91,48 @@ function MonthBody({ year, month }: { year: number; month: number }) {
       {editing && <EditRow row={editing} onClose={() => setEditing(undefined)} />}
       {adding && <AddRow year={year} month={month} onClose={() => setAdding(false)} />}
     </div>
+  )
+}
+
+/** From / To dates within the month; while set, the lists show only those days, with their totals. */
+function DateFilter({ year, month, range, onChange, shown, total }: {
+  year: number
+  month: number
+  range: { from: string; to: string }
+  onChange(r: { from: string; to: string }): void
+  shown: Row[]
+  total: number
+}) {
+  const ym = `${year}-${String(month).padStart(2, '0')}`
+  const first = `${ym}-01`
+  const last = `${ym}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
+  const on = !!(range.from || range.to)
+  const bad = !!(range.from && range.to && range.from > range.to)
+  const sum = (k: Kind) => shown.filter((r) => r.kind === k && !r.trip).reduce((a, r) => a + r.amount, 0)
+  return (
+    <section className="card stack tight date-filter" data-tour="date-filter" aria-label="Filter by date">
+      <div className="two">
+        <Field label="From">
+          <input type="date" value={range.from} min={first} max={range.to || last}
+            onChange={(e) => onChange({ ...range, from: e.target.value })} aria-invalid={bad} />
+        </Field>
+        <Field label="To">
+          <input type="date" value={range.to} min={range.from || first} max={last}
+            onChange={(e) => onChange({ ...range, to: e.target.value })} aria-invalid={bad} />
+        </Field>
+      </div>
+      {bad && <p className="error-text small">"From" is after "To": nothing can match.</p>}
+      {on && (
+        <div className="filter-result">
+          <span className="small">
+            Showing {shown.length} of {total} · spent {rm(sum('spend'))} · earned {rm(sum('earn'))}
+          </span>
+          <button type="button" className="btn ghost small" onClick={() => onChange({ from: '', to: '' })}>
+            Clear
+          </button>
+        </div>
+      )}
+    </section>
   )
 }
 

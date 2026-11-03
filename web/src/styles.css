@@ -1058,7 +1058,8 @@ button.row:hover {
 }
 .two {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Two side by side; one per row when the text is large. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5em), 1fr));
   gap: 10px;
 }
 
@@ -1413,4 +1414,13 @@ button.row:hover {
   .tour-hole {
     transition: none;
   }
+}
+
+/* Month: date filter */
+.filter-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
 }

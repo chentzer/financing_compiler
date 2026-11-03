@@ -38,6 +38,8 @@ const STEPS: Step[] = [
     text: 'Switch between a month, the whole year, and your trips here.' },
   { route: { name: 'month' }, target: 'month-nav', title: 'Pick a month',
     text: 'Use the arrows or the calendar to go to another month.' },
+  { route: { name: 'month' }, target: 'date-filter', title: 'Filter by date',
+    text: 'Pick a From and To date to see only those days, with their totals.' },
   { route: { name: 'month' }, target: 'row', title: 'Edit a transaction',
     text: 'Tap any transaction to change it, move it to a trip, or delete it.' },
   { route: { name: 'month' }, target: 'add-row', title: 'Add by hand',
