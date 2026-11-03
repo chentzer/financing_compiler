@@ -29,6 +29,8 @@ export class NativeAuth implements Auth {
   /** Quiet renewal off: calls waiting for "Continue" (as on the web). */
   private waiting?: { promise: Promise<string>; resolve: (t: string) => void }
   private listeners = new Set<(needed: boolean) => void>()
+  /** Google refused the last token: the next sign-in asks Android for a new one, not its cached one. */
+  private forceRefresh = false
   /** The sign-in in progress: every call waiting for a token shares it (one account chooser, not one per call). */
   private inFlight?: Promise<User>
 
@@ -96,6 +98,16 @@ export class NativeAuth implements Auth {
     return this.token!.value
   }
 
+  invalidate(): void {
+    this.token = undefined
+    this.forceRefresh = true
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+
   onReconnectNeeded(listener: (needed: boolean) => void): () => void {
     this.listeners.add(listener)
     if (this.waiting) listener(true)
@@ -129,7 +141,12 @@ export class NativeAuth implements Auth {
     const quiet = !choose && !!this.user
     const ask = (q: boolean) => SocialLogin.login({
       provider: 'google',
-      options: { scopes: GOOGLE_SCOPES, ...(q ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}) },
+      options: {
+        scopes: GOOGLE_SCOPES,
+        ...(q ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}),
+        // Android hands back a cached token, which may be expired or revoked.
+        ...(this.forceRefresh ? { forceRefreshToken: true } : {}),
+      },
     })
     let res: Awaited<ReturnType<typeof ask>>
     try {
@@ -144,6 +161,7 @@ export class NativeAuth implements Auth {
     }
     const token = r.accessToken?.token
     if (!token) throw new Error('Google sign-in did not return access to Sheets and Drive. Try again.')
+    this.forceRefresh = false
     this.token = { value: token, expires: Date.now() + TOKEN_LIFE_MS }
     try {
       localStorage.setItem(TOKEN_KEY, JSON.stringify(this.token))

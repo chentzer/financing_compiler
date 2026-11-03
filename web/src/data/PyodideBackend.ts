@@ -122,7 +122,7 @@ export class PyodideBackend implements Backend {
 
   constructor(auth: Auth) {
     this.auth = auth
-    this.g = new Google(() => auth.getAccessToken())
+    this.g = new Google(() => auth.getAccessToken(), () => auth.invalidate?.())
     warmUp()
   }
 

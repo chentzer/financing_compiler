@@ -127,6 +127,16 @@ export class GoogleWebAuth implements Auth {
     }
   }
 
+  /** Google refused the stored token: forget it (the next call renews it, or asks to Continue). */
+  invalidate(): void {
+    this.token = undefined
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+
   async getAccessToken(): Promise<string> {
     if (this.token && this.token.expires > Date.now() + 60_000) return this.token.value
     if (!this.waiting) {

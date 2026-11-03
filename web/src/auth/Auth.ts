@@ -41,6 +41,8 @@ export interface Auth {
   signOut(): Promise<void>
   /** A valid OAuth access token, refreshing it if needed. */
   getAccessToken(): Promise<string>
+  /** Google refused the last token (expired or revoked): forget it so the next call gets a new one. */
+  invalidate?(): void
   /**
    * Web: browsers block Google's popup unless it comes from a click.
    * Android: only with quiet renewal off (renew.ts). When a token is needed

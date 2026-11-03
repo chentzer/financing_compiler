@@ -33,11 +33,14 @@ const CACHE_MS = 2 * 60_000
 
 export class Google {
   private token: () => Promise<string>
+  private refused: () => void
   /** Spreadsheet id -> (request -> answer). Screens ask for the same tabs and cells over and over. */
   private cache = new Map<string, Map<string, { at: number; value: Promise<unknown> }>>()
 
-  constructor(token: () => Promise<string>) {
+  /** `refused`: Google rejected the token (401); the auth drops it so the next token is a fresh one. */
+  constructor(token: () => Promise<string>, refused: () => void = () => undefined) {
     this.token = token
+    this.refused = refused
   }
 
   private cached<T>(id: string, key: string, load: () => Promise<T>): Promise<T> {
@@ -63,11 +66,19 @@ export class Google {
 
   private async call<T>(url: string, init: RequestInit = {}): Promise<T> {
     let r: Response
+    let retriedAuth = false
     for (let attempt = 0; ; attempt++) {
       r = await fetch(url, {
         ...init,
         headers: { Authorization: `Bearer ${await this.token()}`, ...(init.headers ?? {}) },
       })
+      // A token Google no longer accepts (expired early, or an old one Android had kept):
+      // drop it and try once more with a new one.
+      if (r.status === 401 && !retriedAuth) {
+        retriedAuth = true
+        this.refused()
+        continue
+      }
       // Sheets allows 60 reads and 60 writes a minute per user; a big import
       // goes over that. Wait for the minute to roll over and try again.
       if (r.status !== 429 || attempt >= 5) break
