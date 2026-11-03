@@ -106,6 +106,24 @@ def row_sources(values: dict) -> dict[str, str]:
     return out
 
 
+def all_rows(values: dict) -> list[dict]:
+    """Every row in a book (book_ranges reads, FORMATTED or UNFORMATTED values), each with
+    the tab it's on ("tab") and, on a trip tab, the trip's name ("trip"): for Search."""
+    by_tab: dict[str, dict[str, list]] = {}
+    for rng, rows in values.items():
+        tab_q, part = rng.rsplit("!", 1)
+        tab = tab_q.strip("'").replace("''", "'")
+        by_tab.setdefault(tab, {})[part] = rows or []
+    out = []
+    for tab, parts in by_tab.items():
+        trip = "A4:H" in parts
+        rows = sheetplan.rows_from_values(parts.get("A4:H") or parts.get("A3:H", []), parts.get("P3:U", []),
+                                          4 if trip else 3)
+        for r in rows:
+            out.append(r | {"tab": tab, "trip": tab if trip else ""})
+    return out
+
+
 def tab_ranges(tab_title: str, trip: bool = False) -> list[str]:
     q = sheetplan.quote(tab_title)
     return [f"{q}!A4:H"] if trip else [f"{q}!A3:H", f"{q}!P3:U"]

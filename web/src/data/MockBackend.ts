@@ -270,6 +270,11 @@ export class MockBackend implements Backend {
     )
   }
 
+  async allRows(): Promise<Row[]> {
+    await wait()
+    return clone(this.s.rows)
+  }
+
   async editRow(key: string, fields: RowEdit): Promise<void> {
     await wait()
     const row = this.s.rows.find((r) => r.key === key)

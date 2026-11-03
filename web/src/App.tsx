@@ -11,6 +11,7 @@ import { Settings } from './screens/Settings'
 import { Sheets } from './screens/Sheets'
 import { Trips } from './screens/Trips'
 import { Year } from './screens/Year'
+import { Search } from './screens/Search'
 import { listenForShares } from './app/share'
 import { startTour, Tour } from './components/Tour'
 import { useStored } from './app/store'
@@ -23,6 +24,7 @@ const TITLES: Record<Route['name'], string> = {
   cards: 'To Update',
   month: 'Month',
   year: 'Year',
+  search: 'Search',
   trips: 'Trips',
   investments: 'Investments',
   sheets: 'Sheets',
@@ -113,7 +115,11 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
                 ))}
             </div>
           ))}
-          <a href={href({ name: 'settings' })} className={route.name === 'settings' ? 'nav on push-down' : 'nav push-down'} data-tour="settings">
+          <a href={href({ name: 'search' })} className={route.name === 'search' ? 'nav on push-down' : 'nav push-down'} data-tour="search">
+            <span className="nav-icon" aria-hidden><SearchIcon /></span>
+            <span className="nav-label">Search</span>
+          </a>
+          <a href={href({ name: 'settings' })} className={route.name === 'settings' ? 'nav on' : 'nav'} data-tour="settings">
             <span className="nav-icon" aria-hidden>⚙</span>
             <span className="nav-label">Settings</span>
           </a>
@@ -124,7 +130,10 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           <div className="topbar-row">
             <h1>{TITLES[route.name]}</h1>
             {demo && <span className="pill warn">Demo data</span>}
-            {/* Settings is rarely needed: one tap away up here, not a bottom tab. */}
+            {/* Search and Settings: one tap away up here, not bottom tabs. */}
+            <a className={route.name === 'search' ? 'icon-btn settings-link on' : 'icon-btn settings-link'} href={href({ name: 'search' })} aria-label="Search transactions" data-tour="search">
+              <SearchIcon />
+            </a>
             <a className={route.name === 'settings' ? 'icon-btn settings-link on' : 'icon-btn settings-link'} href={href({ name: 'settings' })} aria-label="Settings" data-tour="settings">
               ⚙
             </a>
@@ -146,6 +155,7 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
           {route.name === 'cards' && <Cards />}
           {route.name === 'month' && <Month year={route.year} month={route.month} />}
           {route.name === 'year' && <Year year={route.year} />}
+          {route.name === 'search' && <Search />}
           {route.name === 'trips' && <Trips trip={route.trip} />}
           {route.name === 'investments' && <Sheets sheet={route.sheet} section="investments" />}
           {route.name === 'sheets' && <Sheets sheet={route.sheet} />}
@@ -175,7 +185,7 @@ interface Tab {
 
 /** Which bottom tab a page belongs to (Settings: none, it's in the header). */
 const HUB_OF: Record<Route['name'], Hub | null> = {
-  home: 'home', month: 'accounts', year: 'accounts', trips: 'accounts', upload: 'upload', cards: 'cards',
+  search: null, home: 'home', month: 'accounts', year: 'accounts', trips: 'accounts', upload: 'upload', cards: 'cards',
   investments: 'sheets', sheets: 'sheets', settings: null,
 }
 
@@ -319,6 +329,15 @@ function GoogleG() {
       <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z" />
       <path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z" />
       <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.8 6C6.6 42.6 14.6 48 24 48z" />
+    </svg>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   )
 }

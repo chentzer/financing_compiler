@@ -1424,3 +1424,16 @@ button.row:hover {
   justify-content: space-between;
   gap: 4px 12px;
 }
+
+/* Search */
+.settings-link + .settings-link {
+  margin-left: 0;
+}
+.search-box {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 64px);
+  z-index: 3;
+}
+.search-box input {
+  font-size: 1.05rem;
+}

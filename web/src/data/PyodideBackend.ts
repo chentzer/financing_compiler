@@ -390,6 +390,32 @@ export class PyodideBackend implements Backend {
     })
   }
 
+  async allRows(): Promise<Row[]> {
+    await this.useSettings()
+    const books = await this.yearBooks()
+    // One read per year (all its month and trip tabs), years side by side.
+    const perBook = await Promise.all(books.map(async (b) => {
+      const titles = (await this.g.tabs(b.id)).map((t) => t.title)
+      const ranges = await py<string[]>('book_ranges', [b.year, titles])
+      if (!ranges.length) return [] as Row[]
+      const vals = await this.g.read(b.id, ranges, 'UNFORMATTED_VALUE')
+      const rows = await py<(PyRow & { tab: string; trip: string })[]>('all_rows', [Object.fromEntries(ranges.map((r, i) => [r, vals[i]]))])
+      return rows.map((r): Row => {
+        const key = r.key || `manual:${r.tab}:${r.kind}:${r.row}`
+        if (r.key) {
+          this.rowsAt.set(key, { book: b, tab: r.tab, trip: !!r.trip })
+          this.rowDates.set(key, r.date ?? '')
+        }
+        return {
+          key, kind: r.kind, date: r.date ?? '', item: r.item, amount: r.amount,
+          category: (r.category || '') as Category | '', importance: (r.importance || '') as Importance | '',
+          remarks: r.remarks, source: r.source, trip: r.trip || undefined,
+        }
+      })
+    }))
+    return perBook.flat()
+  }
+
   async editRow(key: string, fields: RowEdit): Promise<void> {
     if (key.startsWith('manual:')) throw new Error('This row was typed in by hand: edit it in Google Sheets.')
     const where = this.rowsAt.get(key) ?? this.cardsAt.get(key)

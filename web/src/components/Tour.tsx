@@ -46,6 +46,8 @@ const STEPS: Step[] = [
     text: 'Add cash spending or anything a statement missed.' },
   { route: { name: 'investments' }, target: 'tab-sheets', title: 'Sheets',
     text: 'Your investments, and sheets of your own like ang pao.' },
+  { route: { name: 'home' }, target: 'search', title: 'Search',
+    text: 'Find any transaction by name, category, note, bank or amount, across every year.' },
   { route: { name: 'home' }, target: 'settings', title: 'Settings',
     text: 'Rules, categories, trips and passwords. You can replay this tour from here.' },
 ]

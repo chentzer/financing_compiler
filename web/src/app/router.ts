@@ -11,6 +11,7 @@ export type Route =
   | { name: 'cards' }
   | { name: 'month'; year?: number; month?: number }
   | { name: 'year'; year?: number }
+  | { name: 'search' }
   | { name: 'trips'; trip?: string }
   | { name: 'investments'; sheet?: string }
   | { name: 'sheets'; sheet?: string }
@@ -27,6 +28,8 @@ export function parseRoute(hash: string): Route {
       const m = parts[1]?.match(/^(\d{4})-(\d{2})$/)
       return m ? { name: 'month', year: +m[1], month: +m[2] } : { name: 'month' }
     }
+    case 'search':
+      return { name: 'search' }
     case 'year':
       return /^\d{4}$/.test(parts[1] ?? '') ? { name: 'year', year: +parts[1] } : { name: 'year' }
     case 'trips':

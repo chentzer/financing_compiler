@@ -86,3 +86,14 @@ def test_row_sources_for_cards():
     values = {"'October 2026'!A3:H": [[46300, "Transfer", "", 45, "", "TNG", "", "k1"]],
               "'October 2026'!P3:U": [[46301, "Transfer", 120, "Maybank", "", "k2"]]}
     assert webapi.row_sources(values) == {"k1": "TNG", "k2": "Maybank"}
+
+
+def test_all_rows_for_search():
+    from fincomp import webapi
+    values = {"'October 2026'!A3:H": [[46300, "Lunch", "Food", 12.5, "", "TNG", "", "k1"]],
+              "'October 2026'!P3:U": [[46301, "Salary", 3000, "Maybank", "", "k2"]],
+              "'Bali Trip'!A4:H": [[46194, "Hotel", "Misc", 340, "", "Maybank", "", "k3"]]}
+    rows = {r["key"]: r for r in webapi.all_rows(values)}
+    assert (rows["k1"]["tab"], rows["k1"]["kind"], rows["k1"]["trip"]) == ("October 2026", "spend", "")
+    assert (rows["k2"]["kind"], rows["k2"]["amount"]) == ("earn", 3000)
+    assert (rows["k3"]["trip"], rows["k3"]["row"]) == ("Bali Trip", 4)

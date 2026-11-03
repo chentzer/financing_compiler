@@ -309,6 +309,8 @@ export interface Backend {
   listMonths(): Promise<Month[]>
   monthSummary(year: number, month: number): Promise<MonthSummary>
   monthRows(year: number, month: number): Promise<Row[]>
+  /** Every saved transaction, all years and trips (Search). */
+  allRows(): Promise<Row[]>
   editRow(key: string, fields: RowEdit): Promise<void>
 
   /** Add a transaction yourself; it can be edited and moved like any other. */

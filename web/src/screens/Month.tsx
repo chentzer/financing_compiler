@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { useStored } from '../app/store'
-import { dayMonth, monthName, newestFirst, rm, signedRm } from '../app/format'
+import { dayMonth, monthName, newestFirst, rm, shortDate, signedRm } from '../app/format'
 import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
@@ -186,7 +186,7 @@ export function Bars({ items, max }: { items: { name: string; amount: number }[]
   )
 }
 
-function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: Row): void }) {
+export function RowList({ title, rows, onTap, withYear }: { title: string; rows: Row[]; onTap(r: Row): void; withYear?: boolean }) {
   return (
     <section className="card flush">
       <h3 className="list-title">
@@ -199,7 +199,7 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
           {newestFirst(rows).map((r, i) => (
             <li key={r.key}>
               <button className="row" onClick={() => onTap(r)} data-tour={i === 0 ? 'row' : undefined}>
-                <span className="row-date">{dayMonth(r.date)}</span>
+                <span className="row-date">{withYear ? shortDate(r.date) : dayMonth(r.date)}</span>
                 <span className="row-main">
                   <span className="row-item">{r.item}</span>
                   <span className="row-sub">
@@ -220,7 +220,7 @@ function RowList({ title, rows, onTap }: { title: string; rows: Row[]; onTap(r: 
   )
 }
 
-function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
+export function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
   const { backend, changed, toast, later } = useData()
   const [, setHidden] = useStored<string[]>('rows.hidden', [])
   const [f, setF] = useState({
