@@ -25,7 +25,7 @@ const STEPS: Step[] = [
   { route: { name: 'home' }, target: 'tab-home', title: 'Home',
     text: 'This month, this year so far, and your totals to date.' },
   { route: { name: 'upload' }, target: 'tab-upload', title: 'Upload',
-    text: 'Add bank and e-wallet statements (PDF), Splitwise exports or an old accounts workbook.' },
+    text: 'Add bank and e-wallet statements (PDF), Splitwise exports or an old accounts workbook. On the app it keeps going if you switch apps.' },
   { route: { name: 'upload' }, target: 'upload-pick', title: 'Share to FinMerge',
     text: 'Or share a statement from your bank app or Files straight to FinMerge: it uploads by itself.' },
   { route: { name: 'cards' }, target: 'tab-cards', title: 'To Update',

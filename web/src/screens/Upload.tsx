@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStored } from '../app/store'
+import { backgroundProgress, backgroundStart, backgroundStop, canRunInBackground } from '../app/background'
 import { errorText, useData, useLoad } from '../app/context'
 import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
@@ -53,8 +54,17 @@ function UploadInner() {
     setBusy(true)
     setError(undefined)
     setProgress({ fraction: 0, step: 'Starting' })
+    // Android: keeps going if you switch apps or the screen goes off (progress notification).
+    await backgroundStart(files.length === 1 ? files[0].name : `${files.length} files`)
+    let done: string | undefined
     try {
-      const out = await backend.uploadStatements(files, passwords, setProgress)
+      const out = await backend.uploadStatements(files, passwords, (p) => {
+        setProgress(p)
+        backgroundProgress(p)
+      })
+      const ok = out.filter((r) => r.status === 'ok').length
+      const cards = out.reduce((a, r) => a + (r.cardsAdded ?? 0), 0)
+      done = `${ok} of ${out.length} ${out.length === 1 ? 'file' : 'files'} uploaded${cards ? ` · ${cards} to update` : ''}`
       // Replace earlier results for the same files, keep the order picked.
       setResults((prev) => {
         const byFile = new Map(prev.map((r) => [r.file, r]))
@@ -64,9 +74,11 @@ function UploadInner() {
       changed()
     } catch (e) {
       setError(errorText(e))
+      done = `Upload stopped: ${errorText(e)}`
     } finally {
       setBusy(false)
       setProgress(undefined)
+      await backgroundStop(done)
     }
   }
 
@@ -165,7 +177,10 @@ function UploadInner() {
             <span>{Math.round(progress.fraction * 100)}%</span>
           </div>
           <p className="muted small">
-            {progress.step}. You can look at other tabs meanwhile; keep this app open.
+            {progress.step}.{' '}
+            {canRunInBackground
+              ? 'You can switch apps or lock the phone: it keeps going, with progress in your notifications.'
+              : 'You can look at other tabs meanwhile; keep this page open.'}
           </p>
         </div>
       )}
