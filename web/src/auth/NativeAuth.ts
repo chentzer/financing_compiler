@@ -3,6 +3,8 @@ import { ALLOWED_EMAILS, GOOGLE_SCOPES, NotAllowedError, type Auth, type User } 
 import { getQuietRenew } from './renew'
 
 const USER_KEY = 'fincomp.user'
+// The access token (an hour) is kept on this phone, so reopening the app doesn't ask again.
+const TOKEN_KEY = 'fincomp.token'
 // Google access tokens last an hour; ask again a little before.
 const TOKEN_LIFE_MS = 55 * 60_000
 
@@ -27,11 +29,15 @@ export class NativeAuth implements Auth {
   /** Quiet renewal off: calls waiting for "Continue" (as on the web). */
   private waiting?: { promise: Promise<string>; resolve: (t: string) => void }
   private listeners = new Set<(needed: boolean) => void>()
+  /** The sign-in in progress: every call waiting for a token shares it (one account chooser, not one per call). */
+  private inFlight?: Promise<User>
 
   constructor(webClientId: string) {
     this.webClientId = webClientId
     try {
       this.user = JSON.parse(localStorage.getItem(USER_KEY) ?? 'null')
+      const t = JSON.parse(localStorage.getItem(TOKEN_KEY) ?? 'null')
+      if (this.user && t?.value && t.expires > Date.now() + 60_000) this.token = t
     } catch {
       this.user = null
     }
@@ -42,7 +48,7 @@ export class NativeAuth implements Auth {
   }
 
   async signIn(): Promise<User> {
-    const user = await this.login()
+    const user = await this.login(true)
     if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(user.email.toLowerCase())) {
       await this.signOut()
       throw new NotAllowedError(user.email)
@@ -61,6 +67,7 @@ export class NativeAuth implements Auth {
     this.user = null
     try {
       localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(TOKEN_KEY)
     } catch {
       /* ignore */
     }
@@ -108,9 +115,29 @@ export class NativeAuth implements Auth {
     return this.ready
   }
 
-  private async login(): Promise<User> {
+  /** One sign-in at a time; `choose` shows the account chooser (first sign-in only). */
+  private login(choose = false): Promise<User> {
+    this.inFlight ??= this.loginOnce(choose).finally(() => {
+      this.inFlight = undefined
+    })
+    return this.inFlight
+  }
+
+  private async loginOnce(choose: boolean): Promise<User> {
     await this.init()
-    const res = await SocialLogin.login({ provider: 'google', options: { scopes: GOOGLE_SCOPES } })
+    // After the first sign-in, renewals pick the account already signed in, without asking.
+    const quiet = !choose && !!this.user
+    const ask = (q: boolean) => SocialLogin.login({
+      provider: 'google',
+      options: { scopes: GOOGLE_SCOPES, ...(q ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}) },
+    })
+    let res: Awaited<ReturnType<typeof ask>>
+    try {
+      res = await ask(quiet)
+    } catch (e) {
+      if (!quiet) throw e
+      res = await ask(false) // no account remembered on this phone: show the chooser once
+    }
     const r = res.result as {
       accessToken?: { token: string } | null
       profile?: { email?: string | null; name?: string | null; imageUrl?: string | null }
@@ -118,6 +145,11 @@ export class NativeAuth implements Auth {
     const token = r.accessToken?.token
     if (!token) throw new Error('Google sign-in did not return access to Sheets and Drive. Try again.')
     this.token = { value: token, expires: Date.now() + TOKEN_LIFE_MS }
+    try {
+      localStorage.setItem(TOKEN_KEY, JSON.stringify(this.token))
+    } catch {
+      /* storage blocked: asked again next time the app opens */
+    }
     const email = r.profile?.email ?? this.user?.email
     if (!email) throw new Error('Google sign-in did not say which account was used.')
     return { email, name: r.profile?.name ?? undefined, picture: r.profile?.imageUrl ?? undefined }
