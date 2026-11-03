@@ -60,7 +60,10 @@ function MonthBody({ year, month }: { year: number; month: number }) {
   const [hidden] = useStored<string[]>('rows.hidden', [])
   // Date filter, kept per month while the app is open (coming back shows the same range).
   const ym = `${year}-${String(month).padStart(2, '0')}`
-  const [range, setRange] = useStored<{ from: string; to: string }>(`month.range.${ym}`, { from: '', to: '' })
+  const monthEnd = `${ym}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
+  const whole = { from: `${ym}-01`, to: monthEnd }
+  // Starts as the whole month (first to last day); narrow it to filter.
+  const [range, setRange] = useStored<{ from: string; to: string }>(`month.range.${ym}`, whole)
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
   const { summary } = load.data
@@ -80,7 +83,7 @@ function MonthBody({ year, month }: { year: number; month: number }) {
             + Add transaction
           </button>
         </div>
-        <DateFilter year={year} month={month} range={range} onChange={setRange} shown={rows} total={all.length} />
+        <DateFilter year={year} month={month} range={range} onChange={(r) => setRange({ from: r.from || whole.from, to: r.to || whole.to })} shown={rows} total={all.length} />
         {/* Side by side when there's room, as in the sheet; stacked on a phone. */}
         <div className="lists-pair">
           <RowList title="Spendings" rows={spend} onTap={setEditing} />
@@ -106,7 +109,8 @@ function DateFilter({ year, month, range, onChange, shown, total }: {
   const ym = `${year}-${String(month).padStart(2, '0')}`
   const first = `${ym}-01`
   const last = `${ym}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
-  const on = !!(range.from || range.to)
+  // Filtering only when narrower than the whole month.
+  const on = (!!range.from && range.from > first) || (!!range.to && range.to < last)
   const bad = !!(range.from && range.to && range.from > range.to)
   const sum = (k: Kind) => shown.filter((r) => r.kind === k && !r.trip).reduce((a, r) => a + r.amount, 0)
   return (
@@ -127,8 +131,8 @@ function DateFilter({ year, month, range, onChange, shown, total }: {
           <span className="small">
             Showing {shown.length} of {total} · spent {rm(sum('spend'))} · earned {rm(sum('earn'))}
           </span>
-          <button type="button" className="btn ghost small" onClick={() => onChange({ from: '', to: '' })}>
-            Clear
+          <button type="button" className="btn ghost small" onClick={() => onChange({ from: first, to: last })}>
+            Whole month
           </button>
         </div>
       )}
