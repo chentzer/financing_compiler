@@ -75,3 +75,17 @@ def test_tolls_and_unknown_types_follow_the_wallet_balance():
     assert [(t.description, t.amount) for t in txs if not t.internal] == [
         ("SOME TOLL PLAZA", -2.30), ("SOME NEW THING", -4.00), ("BOB LIM", 10.00),
     ]
+
+
+def test_paydirect_is_always_spending_even_when_rows_are_out_of_order():
+    from fincomp.parsers.tng import parse_v1_rows
+
+    # Same-day rows listed out of order: the balance seems to go up by the toll's amount.
+    txs = parse_v1_rows([
+        v1("8/8/2026", "Reload", "Quick Reload Payment (via GO+ Balance)", "RM10.00", "RM7.70"),
+        v1("8/8/2026", "PayDirect Payment", "SOME TOLL PLAZA", "RM2.30", "RM10.00"),
+        v1("8/8/2026", "PayDirect Payment", "SOME CAR PARK", "RM3.00", "RM7.00"),
+    ])
+    assert [(t.description, t.amount) for t in txs if not t.internal] == [
+        ("SOME TOLL PLAZA", -2.30), ("SOME CAR PARK", -3.00),
+    ]

@@ -46,6 +46,9 @@ WALLET_OUT_TYPES = {
     "DUITNOW_TRANSFERTO",
     "TRANSIT_PASS",
 }
+# Always money out, whatever the balance column seems to say (same-day rows
+# can be listed out of order): tolls and parking are never earnings.
+ALWAYS_OUT_TYPES = {"PAYDIRECTPAYMENT"}
 # DuitNow to/from a bank account: the Description is the other person.
 DUITNOW_TYPES = {"DUITNOW_TRANSFERTO", "DUITNOW_RECEIVEFROM"}
 URL_RE = re.compile(r"\s*-?\s*https?://.*$", re.IGNORECASE)
@@ -166,7 +169,9 @@ def parse_v1_rows(rows: list[dict[str, str]], file: str = "", holder: str = "") 
             # so a type not listed above can't turn spending into earnings.
             after = _money(row.get("Balance", ""))
             if after is not None:
-                if balance is not None and abs(abs(after - balance) - amount) < 0.005:
+                if kind in ALWAYS_OUT_TYPES:
+                    signed = -amount
+                elif balance is not None and abs(abs(after - balance) - amount) < 0.005:
                     signed = amount if after > balance else -amount
                 balance = after
 
