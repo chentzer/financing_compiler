@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 WEB = Path(__file__).resolve().parents[1]
-TEAL, WHITE, AMBER = (15, 118, 110, 255), (255, 255, 255, 255), (251, 191, 36, 255)
+BLUE, WHITE, AMBER = (26, 115, 232, 255), (255, 255, 255, 255), (251, 191, 36, 255)
 SS = 4  # supersampling
 
 
@@ -20,9 +20,9 @@ def draw(size: int, *, background: str, glyph_box: float) -> Image.Image:
     img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if background == "rounded":
-        d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * 14 / 64, fill=TEAL)
+        d.rounded_rectangle([0, 0, n - 1, n - 1], radius=n * 14 / 64, fill=BLUE)
     elif background == "square":
-        d.rectangle([0, 0, n, n], fill=TEAL)
+        d.rectangle([0, 0, n, n], fill=BLUE)
     u = n * glyph_box / 64
     o = (n - 64 * u) / 2
     p = lambda x, y: (o + x * u, o + y * u)  # noqa: E731

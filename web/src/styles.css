@@ -1,17 +1,22 @@
 :root {
-  --bg: #f4f6f5;
+  --bg: #f4f6fb;
   --surface: #ffffff;
-  --surface-2: #eef2f1;
-  --text: #17201e;
-  --muted: #5f6b68;
-  --border: #dde3e1;
+  --surface-2: #f0f4fb;
+  --text: #172033;
+  --muted: #5a6577;
+  --border: #dde3ee;
   /* Outlines that show a control is there (inputs, chips, switches): 3:1 on every background. */
-  --control: #7f8b88;
-  --accent: #0f766e;
+  --control: #7c8798;
+  /* Brand: primary fills, secondary for bars and progress, soft for tinted backgrounds. */
+  --accent: #1a73e8;
   --accent-ink: #ffffff;
-  --accent-soft: #d5efec;
-  --pos: #15803d;
+  --accent-soft: #e8f0fe;
+  --secondary: #4a90d9;
+  /* Blue text and icons: --accent is only 4.17:1 on --bg, under the 4.5:1 text needs. */
+  --accent-text: #1765cc;
+  --pos: #147a3a;
   --neg: #b91c1c;
+  --neg-ink: #ffffff;
   --warn-bg: #fef3c7;
   --warn-ink: #92400e;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
@@ -28,18 +33,21 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1413;
-    --surface: #182120;
-    --surface-2: #212c2a;
-    --text: #e7eeec;
-    --muted: #93a19d;
-    --border: #2b3836;
-    --control: #677874;
-    --accent: #2dd4bf;
-    --accent-ink: #062320;
-    --accent-soft: #123b37;
+    --bg: #0f1420;
+    --surface: #182130;
+    --surface-2: #212c3e;
+    --text: #e7ecf4;
+    --muted: #98a4b6;
+    --border: #2b3648;
+    --control: #7a889e;
+    --accent: #1a73e8;
+    --accent-ink: #ffffff;
+    --accent-soft: #1b3358;
+    --secondary: #4a90d9;
+    --accent-text: #7db0e8;
     --pos: #4ade80;
     --neg: #f87171;
+    --neg-ink: #450a0a;
     --warn-bg: #422006;
     --warn-ink: #fcd34d;
     --shadow: none;
@@ -161,7 +169,7 @@ a:focus-visible {
   text-decoration: none;
 }
 .settings-link.on {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 /* A hub's pages (Month / Year / Trips): all in view across the top. */
 .subtabs {
@@ -223,7 +231,7 @@ a:focus-visible {
   font-size: 0.7rem;
 }
 .nav.on {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .bottom-nav .nav-label {
@@ -278,7 +286,7 @@ a:focus-visible {
   padding: 0 5px;
   border-radius: 9px;
   background: var(--neg);
-  color: #fff;
+  color: var(--neg-ink);
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 18px;
@@ -348,7 +356,7 @@ a:focus-visible {
     font-size: 0.9rem;
   }
   .side .nav.primary .nav-icon {
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .side .push-down {
     margin-top: auto;
@@ -552,7 +560,7 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   min-height: 48px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
   font-size: 0.9rem;
 }
@@ -602,7 +610,7 @@ a:focus-visible {
   overflow-wrap: anywhere;
 }
 .card.drop-target {
-  outline: 2px dashed var(--accent);
+  outline: 2px dashed var(--accent-text);
   outline-offset: -6px;
   background: var(--accent-soft);
 }
@@ -642,7 +650,7 @@ a:focus-visible {
 }
 .result.failed .result-icon {
   background: var(--neg);
-  color: #fff;
+  color: var(--neg-ink);
 }
 .pw-prompt {
   display: flex;
@@ -672,7 +680,7 @@ a:focus-visible {
 }
 .progress .bar div {
   height: 100%;
-  background: var(--accent);
+  background: var(--secondary);
   transition: width 0.3s;
 }
 .update-card {
@@ -764,8 +772,8 @@ a:focus-visible {
   font-weight: 600;
 }
 .chip.suggested:not(.on) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-text);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .chip.add {
@@ -946,7 +954,7 @@ a:focus-visible {
   display: block;
   height: 100%;
   border-radius: 4px;
-  background: var(--accent);
+  background: var(--secondary);
 }
 .bar-amt {
   font-variant-numeric: tabular-nums;
@@ -1249,7 +1257,7 @@ button.row:hover {
   width: calc(100% - 32px);
 }
 .year-table a {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .chips a.chip {
