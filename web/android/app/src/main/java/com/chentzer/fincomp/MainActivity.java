@@ -20,6 +20,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ShareInPlugin.class);
         registerPlugin(UploadKeeperPlugin.class);
+        registerPlugin(QuietTokenPlugin.class);
         super.onCreate(savedInstanceState);
         ShareInPlugin.receive(this, getIntent());
     }

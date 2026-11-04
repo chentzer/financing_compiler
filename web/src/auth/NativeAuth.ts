@@ -1,3 +1,4 @@
+import { registerPlugin } from '@capacitor/core'
 import { SocialLogin } from '@capgo/capacitor-social-login'
 import { ALLOWED_EMAILS, GOOGLE_SCOPES, NotAllowedError, type Auth, type User } from './Auth'
 import { getQuietRenew } from './renew'
@@ -7,6 +8,11 @@ const USER_KEY = 'fincomp.user'
 const TOKEN_KEY = 'fincomp.token'
 // Google access tokens last an hour; ask again a little before.
 const TOKEN_LIFE_MS = 55 * 60_000
+
+/** A token for the saved account with no screen at all (android/.../QuietTokenPlugin.java). */
+const QuietToken = registerPlugin<{
+  get(o: { email: string; scopes: string[]; refused?: string }): Promise<{ token: string }>
+}>('QuietToken')
 
 /**
  * Google sign-in for the Android app. Google blocks its web sign-in inside
@@ -29,8 +35,8 @@ export class NativeAuth implements Auth {
   /** Quiet renewal off: calls waiting for "Continue" (as on the web). */
   private waiting?: { promise: Promise<string>; resolve: (t: string) => void }
   private listeners = new Set<(needed: boolean) => void>()
-  /** Google refused the last token: the next sign-in asks Android for a new one, not its cached one. */
-  private forceRefresh = false
+  /** The token Google refused: Android has it cached, so it's cleared before asking for a new one. */
+  private refused?: string
   /** The sign-in in progress: every call waiting for a token shares it (one account chooser, not one per call). */
   private inFlight?: Promise<User>
 
@@ -99,8 +105,8 @@ export class NativeAuth implements Auth {
   }
 
   invalidate(): void {
+    this.refused = this.token?.value ?? this.refused
     this.token = undefined
-    this.forceRefresh = true
     try {
       localStorage.removeItem(TOKEN_KEY)
     } catch {
@@ -122,6 +128,15 @@ export class NativeAuth implements Auth {
     this.listeners.forEach((l) => l(false))
   }
 
+  private keepToken(value: string): void {
+    this.token = { value, expires: Date.now() + TOKEN_LIFE_MS }
+    try {
+      localStorage.setItem(TOKEN_KEY, JSON.stringify(this.token))
+    } catch {
+      /* storage blocked: a new one is fetched next time the app opens */
+    }
+  }
+
   private init(): Promise<void> {
     this.ready ??= SocialLogin.initialize({ google: { webClientId: this.webClientId, mode: 'online' } })
     return this.ready
@@ -136,17 +151,23 @@ export class NativeAuth implements Auth {
   }
 
   private async loginOnce(choose: boolean): Promise<User> {
+    // Already signed in: a new token for that account, with no screen.
+    if (!choose && this.user) {
+      try {
+        const { token } = await QuietToken.get({ email: this.user.email, scopes: GOOGLE_SCOPES, refused: this.refused })
+        this.refused = undefined
+        this.keepToken(token)
+        return this.user
+      } catch {
+        /* needs a screen (e.g. access was removed): the sign-in below */
+      }
+    }
     await this.init()
-    // After the first sign-in, renewals pick the account already signed in, without asking.
     const quiet = !choose && !!this.user
     const ask = (q: boolean) => SocialLogin.login({
       provider: 'google',
-      options: {
-        scopes: GOOGLE_SCOPES,
-        ...(q ? { filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}),
-        // Android hands back a cached token, which may be expired or revoked.
-        ...(this.forceRefresh ? { forceRefreshToken: true } : {}),
-      },
+      // These two only work with style "bottom"; the default style always shows the chooser.
+      options: { scopes: GOOGLE_SCOPES, ...(q ? { style: 'bottom' as const, filterByAuthorizedAccounts: true, autoSelectEnabled: true } : {}) },
     })
     let res: Awaited<ReturnType<typeof ask>>
     try {
@@ -161,13 +182,8 @@ export class NativeAuth implements Auth {
     }
     const token = r.accessToken?.token
     if (!token) throw new Error('Google sign-in did not return access to Sheets and Drive. Try again.')
-    this.forceRefresh = false
-    this.token = { value: token, expires: Date.now() + TOKEN_LIFE_MS }
-    try {
-      localStorage.setItem(TOKEN_KEY, JSON.stringify(this.token))
-    } catch {
-      /* storage blocked: asked again next time the app opens */
-    }
+    this.refused = undefined
+    this.keepToken(token)
     const email = r.profile?.email ?? this.user?.email
     if (!email) throw new Error('Google sign-in did not say which account was used.')
     return { email, name: r.profile?.name ?? undefined, picture: r.profile?.imageUrl ?? undefined }
