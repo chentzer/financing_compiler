@@ -27,7 +27,7 @@ from datetime import date, timedelta
 from .accounts import (
     CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, FINAL_CELL, FIRST_ROW, IMP_COLS, PAID_COLS, PAID_KEY, SPEND_COLS,
     SPEND_KEY, SUMMARY_COLS, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TRIP_SUMMARY_COLS, TRIPS_CELL, YEAR_SUMMARY,
-    AccountRow, Tab, col_letter, col_number, currency_cols, month_layout, month_links, parse_month_title, quote,
+    PAID_KEY, AccountRow, Tab, col_letter, col_number, currency_cols, month_layout, month_links, parse_month_title, quote,
     received_cols, tab_order, to_update_table, trip_layout, trip_width, year_summary_cells,
 )
 from .config import Config
@@ -37,6 +37,9 @@ TAB_COLS = 26
 SPEND_FIELDS = {"date": "A", "item": "B", "category": "C", "amount": "D", "importance": "E", "source": "F",
                 "remarks": "G"}
 EARN_FIELDS = {"date": "P", "item": "Q", "amount": "R", "source": "S", "remarks": "T"}
+PAID_FIELDS = {"date": "J", "item": "K", "amount": "L", "remarks": "M"}  # trip tab: paid back to you
+FIELDS = {"spend": SPEND_FIELDS, "earn": EARN_FIELDS, "paid": PAID_FIELDS}
+BLOCKS = {"spend": ("A", "H"), "earn": ("P", "U"), "paid": (PAID_COLS[0], PAID_KEY)}
 GAP_COLS = {"month": "ILOV"}  # blank columns between sections (trips: trip_gaps)
 CLEARABLE = {"remarks", "source"}  # fields an edit may empty
 
@@ -135,17 +138,17 @@ def data_ranges(months: list[str], trips: list[str]) -> list[str]:
     for t in months:
         ranges += [f"{quote(t)}!A3:H", f"{quote(t)}!P3:U"]
     for t in trips:
-        ranges.append(f"{quote(t)}!A4:H")
+        ranges += [f"{quote(t)}!A4:H", f"{quote(t)}!J4:N"]
     return ranges
 
 
 def locate(values: dict[str, list[list]]) -> dict[str, tuple[str, str, int, list]]:
-    """key -> (quoted tab, "spend"/"earn", row number, row values)."""
+    """key -> (quoted tab, "spend"/"earn"/"paid" (a trip's paid back to you), row number, row values)."""
     located = {}
     for rng, rows in values.items():
         tab_q = rng.rsplit("!", 1)[0]
-        kind, key_index = ("earn", 5) if rng.endswith("!P3:U") else ("spend", 7)
-        first = 4 if rng.endswith("!A4:H") else 3
+        kind, key_index = ("earn", 5) if rng.endswith("!P3:U") else ("paid", 4) if rng.endswith("!J4:N") else ("spend", 7)
+        first = 3 if rng.endswith("3:H") or rng.endswith("3:U") else 4
         for i, r in enumerate(rows):
             if len(r) > key_index and r[key_index]:
                 located[str(r[key_index])] = (tab_q, kind, first + i, r)
@@ -249,6 +252,8 @@ def finish(
         blocks = [("spend", "A", "H", f"{q}!A{tab.first_row}:H" if tab.kind == "trip" else f"{q}!A3:H")]
         if tab.kind == "month":
             blocks.append(("earn", "P", "U", f"{q}!P3:U"))
+        else:  # money in on a trip (moved there in the app) is paid back to you
+            blocks.append(("earn", PAID_COLS[0], PAID_KEY, f"{q}!J4:N"))
         for kind, c0, c1, rng in blocks:
             block = [r for r in fresh if r.kind == kind]
             if not block:
@@ -258,7 +263,8 @@ def finish(
             min_rows[tab.title] = max(min_rows.get(tab.title, 0), start + len(block) - 1)
             data.append({
                 "range": f"{q}!{c0}{start}:{c1}{start + len(block) - 1}",
-                "values": [[cell(v) for v in r.values()] for r in block],
+                "values": [[cell(v) for v in (r.values() if c0 != PAID_COLS[0] else
+                                              [r.date, r.item, r.amount, r.remarks, r.key])] for r in block],
             })
             remaining = existing - deleted.get((q, kind), 0) + len(block)
             sorts.append(sort_request(sheet_id, tab.first_row, col_index(c0), col_index(c1) + 1, remaining))
@@ -307,7 +313,7 @@ def finish(
 def set_cells(tab_q: str, kind: str, row: int, fields: dict) -> list[dict]:
     """values:batchUpdate entries writing only the given fields of one row
     (a field given as "" clears that cell)."""
-    cols = SPEND_FIELDS if kind == "spend" else EARN_FIELDS
+    cols = FIELDS[kind]
     fields = dict(fields)
     if isinstance(fields.get("date"), str) and fields["date"]:
         fields["date"] = date.fromisoformat(fields["date"][:10])  # a real date, not text
@@ -319,9 +325,9 @@ def set_cells(tab_q: str, kind: str, row: int, fields: dict) -> list[dict]:
 
 
 def remove_row_range(sheet_id: int, kind: str, row: int) -> tuple[int, int, int, int]:
-    """Only the row's own block (Spendings A-H or Earnings P-U): the other
-    block shares the sheet row."""
-    c0, c1 = ("A", "H") if kind == "spend" else ("P", "U")
+    """Only the row's own block (Spendings A-H, Earnings P-U, a trip's paid
+    back J-N): the other blocks share the sheet row."""
+    c0, c1 = BLOCKS[kind]
     return sheet_id, row, col_index(c0), col_index(c1) + 1
 
 
@@ -696,6 +702,9 @@ def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int])
         fields = {"kind": "spend", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "category": _get(v, 2),
                   "amount": as_amount(_get(v, 3)), "importance": _get(v, 4), "source": _get(v, 5),
                   "remarks": _get(v, 6), "key": key}
+    elif kind == "paid":
+        fields = {"kind": "earn", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "amount": as_amount(_get(v, 2)),
+                  "source": "", "remarks": _get(v, 3), "key": key}
     else:
         fields = {"kind": "earn", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "amount": as_amount(_get(v, 2)),
                   "source": _get(v, 3), "remarks": _get(v, 4), "key": key}

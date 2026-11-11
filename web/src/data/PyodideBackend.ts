@@ -946,7 +946,6 @@ export class PyodideBackend implements Backend {
       if (!taken.row) continue
       const target = await py<Target>('place_target', [trip ?? '', taken.row.date])
       if (target.title === taken.row.tab) return
-      if (target.trip && taken.row.kind === 'earn') throw new Error('Only spending can move to a trip.')
       // Another year's spreadsheet: its old year would add it back on the next upload, so that's ruled out first.
       if (target.year !== b.year && !key.startsWith('m-')) {
         const removed = await py<unknown[]>('reviewed_row', [key, { date: taken.row.date, amount: taken.row.amount, statement: `Moved to ${target.year}` }])

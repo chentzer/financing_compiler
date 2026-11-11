@@ -84,7 +84,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   const [error, setError] = useState<string>()
   const [suggested, setSuggested] = useState<Category[]>([])
   // "Move to trip": trips whose dates hold this payment first.
-  const trips = useLoad((b) => (isSpend ? b.getSettings().then((s) => s.trips) : Promise.resolve([])))
+  const trips = useLoad((b) => b.getSettings().then((s) => s.trips))
   const onTrip = (t: { start: string; end: string }) => card.date >= t.start && card.date <= t.end
   const tripList = [...(trips.data ?? [])].sort((a, b) => Number(onTrip(b)) - Number(onTrip(a)) || b.start.localeCompare(a.start))
   const [moving, setMoving] = useState(false)
@@ -228,9 +228,9 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       {error && <p className="error-text">{error}</p>}
 
       <div className="uc-actions" data-tour="card-actions">
-        {isSpend && tripList.length > 0 && (
+        {tripList.length > 0 && (
           <button type="button" className="btn" disabled={busy} onClick={() => setMoving((m) => !m)}
-            title="Put this spending on a trip's tab">
+            title={isSpend ? "Put this spending on a trip's tab" : "Put this on a trip's tab as paid back to you"}>
             ✈ Trip
           </button>
         )}

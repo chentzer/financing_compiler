@@ -250,7 +250,7 @@ export function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
     try {
       const common = { date: f.date !== row.date ? f.date : undefined, amount: Number(amount) !== row.amount ? Number(amount) : undefined }
       await backend.editRow(row.key, isSpend ? { ...f, ...common, date: common.date } : { item: f.item, remarks: f.remarks, source: f.source, ...common })
-      if (isSpend && moveTo !== (row.trip ?? '')) await backend.moveRow(row.key, moveTo || null)
+      if (moveTo !== (row.trip ?? '')) await backend.moveRow(row.key, moveTo || null)
       const otherMonth = common.date && common.date.slice(0, 7) !== row.date.slice(0, 7)
       toast(moveTo !== (row.trip ?? '') ? (moveTo ? `Moved to ${moveTo}` : 'Moved back to its month') : otherMonth ? `Moved to ${monthName(+common.date!.slice(0, 4), +common.date!.slice(5, 7))}` : 'Row updated')
       changed()
@@ -299,8 +299,8 @@ export function EditRow({ row, onClose }: { row: Row; onClose(): void }) {
         <Field label="Remarks" hint="Your own note">
           <input value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} />
         </Field>
-        {isSpend && !byHand && (trips.data?.length ?? 0) > 0 && (
-          <Field label="Trip" hint="Move this spending onto a trip's tab">
+        {!byHand && (trips.data?.length ?? 0) > 0 && (
+          <Field label="Trip" hint={isSpend ? "Move this spending onto a trip's tab" : 'Move it to a trip as paid back to you'}>
             <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
               <option value="">Not on a trip (its month)</option>
               {trips.data!.map((t) => (

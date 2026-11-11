@@ -95,8 +95,8 @@ def row_sources(values: dict) -> dict[str, str]:
     """key -> Source (bank or wallet) of each row in `values` (book_ranges reads), for the cards."""
     out = {}
     for key, (_, kind, _, r) in sheetplan.locate(values).items():
-        i = 3 if kind == "earn" else 5  # Earnings P-U: Source is S; Spendings A-H: F
-        out[key] = str(r[i]).strip() if len(r) > i else ""
+        i = {"earn": 3, "spend": 5}.get(kind)  # Earnings P-U: Source is S; Spendings A-H: F; paid back: none
+        out[key] = str(r[i]).strip() if i is not None and len(r) > i else ""
     return out
 
 
@@ -110,9 +110,11 @@ def all_rows(values: dict) -> list[dict]:
         by_tab.setdefault(tab, {})[part] = rows or []
     out = []
     for tab, parts in by_tab.items():
-        trip = "A4:H" in parts
-        rows = sheetplan.rows_from_values(parts.get("A4:H") or parts.get("A3:H", []), parts.get("P3:U", []),
-                                          4 if trip else 3)
+        trip = "A4:H" in parts or "J4:N" in parts
+        # A trip's paid back to you (J-N: no Source) reads like Earnings.
+        paid = [(list(r) + [""] * 5)[:3] + [""] + (list(r) + [""] * 5)[3:5] for r in parts.get("J4:N", [])]
+        rows = sheetplan.rows_from_values(parts.get("A4:H") or parts.get("A3:H", []),
+                                          paid if trip else parts.get("P3:U", []), 4 if trip else 3)
         for r in rows:
             out.append(r | {"tab": tab, "trip": tab if trip else ""})
     return out

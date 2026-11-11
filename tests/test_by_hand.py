@@ -87,6 +87,27 @@ def test_move_adds_first_and_is_safe_to_retry():
     assert webapi.finish_rows(2026, ids, reads, True)["added"] == 0
 
 
+def test_money_in_moves_to_a_trip_as_paid_back_and_stays_there():
+    webapi.use_settings(settings_with(JAPAN))
+    titles = ["To Update", "November 2026", "Japan Trip", "Year End Summary"]
+    ids = {t: i for i, t in enumerate(titles)}
+    month = {"'November 2026'!P3:U": [[46335, "Flight + Accoms", 1374.47, "Ryt Bank", "From Bob", "k5"]]}
+    row = webapi.take_row("k5", month, ids)["row"]
+    prep = webapi.prepare_rows(2026, titles, [row], "Japan Trip")
+    assert "'Japan Trip'!J4:N" in prep["reads"]
+    done = webapi.finish_rows(2026, ids, {r: [] for r in prep["reads"]} | month, True)
+    data = {d["range"]: d["values"] for d in done["data"]}
+    assert data["'Japan Trip'!J4:N4"] == [["2026-11-09", "Flight + Accoms", 1374.47, "From Bob", "k5"]]
+    # Once there, it's found by its key: an upload won't add it back to November, and it moves back.
+    paid = {"'Japan Trip'!J4:N": [[46335, "Flight + Accoms", 1374.47, "From Bob", "k5"]]}
+    back = webapi.take_row("k5", paid, ids)
+    assert back["row"]["kind"] == "earn" and back["row"]["remarks"] == "From Bob"
+    assert back["requests"][0]["deleteRange"]["range"]["startColumnIndex"] == 9  # J-N only
+    assert webapi.row_sources(paid) == {"k5": ""}
+    (found,) = webapi.all_rows(paid)
+    assert (found["kind"], found["trip"], found["amount"]) == ("earn", "Japan Trip", 1374.47)
+
+
 def test_a_formula_amount_moves_with_its_value():
     webapi.use_settings(settings_with(JAPAN))
     # Read with UNFORMATTED_VALUE, so =150/3 arrives as 50.
