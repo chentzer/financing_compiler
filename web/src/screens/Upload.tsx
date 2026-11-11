@@ -113,7 +113,7 @@ function UploadInner() {
           Pick statement PDFs from any of your banks or e-wallets, or a Splitwise export (CSV): several at once,
           or a few at a time from different folders (or drop them here). They're read on this device; only the
           results go to your Google Drive. Saved passwords are used automatically. For Splitwise, what you paid is
-          spending and money paid back to you is earnings, at your trip's rate (Settings › Trips). An accounts
+          spending and money paid back to you is earnings, at your trip's rate (set in Trips). An accounts
           workbook you kept yourself (.xlsx, like "2022 Accounts") has its month tabs copied in as they are.
         </p>
         {keep.data !== undefined && (

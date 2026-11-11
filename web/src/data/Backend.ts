@@ -151,6 +151,8 @@ export interface Rule {
   trip?: string
   /** Leave matching rows out. */
   skip?: boolean
+  /** Typed into the Rules tab by hand; the app keeps it as it is. */
+  regex?: string
 }
 
 export interface Person {
@@ -176,6 +178,8 @@ export interface Trip {
   /** Statement pieces that send earlier bookings to this trip. */
   match: string[]
   link?: string
+  /** How long before the trip a booking can be (Trips tab; 180 unless typed there). */
+  leadDays?: number
 }
 
 /** A trip with its total (Q4 of its tab: what you really paid, in RM). */
@@ -343,9 +347,13 @@ export interface Backend {
   /** Years that have a spreadsheet, oldest first. */
   listYears(): Promise<number[]>
   yearSummary(year: number): Promise<YearSummary>
-  /** Every trip in Settings › Trips with its total. */
+  /** Every trip with its total. */
   listTrips(): Promise<TripTotal[]>
   tripDetail(name: string): Promise<TripDetail>
+  /** Add a trip, or change the one called `previousName` (a new name renames its tab). Its year can't change. */
+  saveTrip(trip: Trip, previousName?: string): Promise<void>
+  /** RM rows go back to their months. Returns how many rows stay on the tab (foreign money has no month). */
+  deleteTrip(name: string): Promise<number>
 
   /** Your own sheets (Sheets section). */
   listSheets(): Promise<CustomSheet[]>

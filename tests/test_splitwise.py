@@ -79,7 +79,7 @@ def test_found_by_content_and_your_name():
 
 
 def test_needs_the_trip_rate():
-    with pytest.raises(ParseError, match="Settings › Trips"):
+    with pytest.raises(ParseError, match="in Trips first"):
         parse(Config(me=["Jane Tan"]))
     with pytest.raises(ParseError, match="rate"):
         parse(Config(me=["Jane Tan"], trips=[Trip("Japan Trip", date(2026, 8, 10), date(2026, 8, 20), currency="JPY")]))

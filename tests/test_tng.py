@@ -1,35 +1,29 @@
 from datetime import date
 
-import pandas as pd
-
 from fincomp.accounts import build_rows
 from fincomp.config import Config
-from fincomp.parsers.tng import parse_v1_tables
-
-HEADER = ["Date", "Status", "Transaction Type", "Reference", "Description", "Details", "Amount (RM)", "Wallet Balance"]
+from fincomp.parsers.tng import V1_COLUMNS, parse_v1_rows
 
 
-def frame():
-    # Synthetic rows in the layout camelot reads from TNG's 8-column statement.
-    return pd.DataFrame([
-        HEADER,
+def statement():
+    # Synthetic rows of TNG's 8-column statement.
+    return [dict(zip(V1_COLUMNS, r)) for r in [
         ["2/9/2026", "Success", "Reload", "R1", "Quick Reload Payment (via GO+ Balance)", "D1", "RM20.00", "RM20.00"],
-        ["2/9/2026", "Success", "DUITNOW_TRANS", "R2", "JANE TAN", "D2", "RM20.00", "RM0.00"],
-        ["", "", "FERTO", "R2", "", "", "", ""],
+        ["2/9/2026", "Success", "DUITNOW_TRANS FERTO", "R2", "JANE TAN", "D2", "RM20.00", "RM0.00"],
         ["3/9/2026", "Success", "Transfer to Wallet", "R3", "Trip Leftovers", "D3", "RM9.50", "RM0.00"],
         ["5/9/2026", "Success", "Receive from Wallet", "R4", "BOB LIM AH", "D4", "RM37.00", "RM37.00"],
         ["7/9/2026", "Success", "TRANSIT_PASS", "R5", "", "D5", "RM50.00", "RM0.00"],
-        ["11/9/2026", "Success", "Payment", "R6", "281498 - BrownDust2 -", "D6", "RM71.91", "RM0.00"],
-        ["", "", "", "R6", "https://play.google.com/store/apps/d", "", "", ""],
+        ["11/9/2026", "Success", "Payment", "R6", "281498 - BrownDust2 - https://play.google.com/store/apps/d", "D6",
+         "RM71.91", "RM0.00"],
         ["1/9/2026", "Success", "GO+ Daily Earnings", "M1", "Daily Interest", "D7", "RM0.0052", "RM63.48"],
         ["2/9/2026", "Success", "GO+ Daily Earnings", "M2", "Daily Interest", "D8", "RM0.0053", "RM0.00"],
         ["3/9/2026", "Success", "GO+ Cash In", "M3", "Via eWallet to GO+", "D9", "RM69.55", "RM69.55"],
         ["12/9/2026", "Failed", "Payment", "R7", "SOME SHOP", "D10", "RM5.00", "RM0.00"],
-    ])
+    ]]
 
 
 def test_tng_rules():
-    txs = parse_v1_tables([frame()], holder="JANE TAN")
+    txs = parse_v1_rows(statement(), holder="JANE TAN")
     got = [(t.date, t.description, t.amount, t.internal) for t in txs]
     assert got == [
         (date(2026, 9, 2), "Quick Reload Payment (via GO+ Balance)", 20.00, True),  # reload: your money
@@ -45,9 +39,9 @@ def test_tng_rules():
     assert txs[1].transfer  # pairs with the bank it came from
 
 
-def test_tng_into_accounts(tmp_path):
-    cfg = Config(answers=tmp_path / "a.json")
-    txs = parse_v1_tables([frame()], holder="JANE TAN")
+def test_tng_into_accounts():
+    cfg = Config()
+    txs = parse_v1_rows(statement(), holder="JANE TAN")
     assert [(r.kind, r.item, r.amount) for r in build_rows(txs, cfg)] == [
         ("earn", "GO+ earnings", 0.01),
         ("spend", "Trip Leftovers", 9.50),  # your note becomes the Item

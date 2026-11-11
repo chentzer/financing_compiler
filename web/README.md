@@ -75,6 +75,7 @@ never call Google or Pyodide directly. After a mutation a screen calls
 | `notMine(key)` | `sheetplan.remove_row(key)` |
 | `uploadStatements(files, passwords)` | Pyodide `pipeline` on the bytes, saved passwords from Drive App Data merged with typed ones, save a typed one once it opens a PDF; return one `UploadResult` per file (`status: 'password'` + `passwordFor` + `wrongPassword` when it can't open) |
 | `getSettings()` / `saveSettings()` | the "fincomp Settings" sheet (Rules / People / Trips / Own payees tabs) |
+| `saveTrip()` / `deleteTrip()` | the Trips screen: a renamed trip renames its tab; a deleted trip's RM rows go back to their months |
 | `getPasswords()` / `savePasswords()` | `passwords.json` in the Drive App Data folder |
 
 Conventions: dates are ISO `YYYY-MM-DD`; `Row.amount` is always positive
@@ -87,7 +88,7 @@ key from column G / R.
   Worker, installs `pypdf` (the version the Python tests use), and writes
   in the `fincomp` package from `public/py/fincomp.json`.
   `scripts/bundle-python.mjs` makes that file from `../src/fincomp` before
-  every `dev`/`build`, leaving out the CLI-only modules.
+  every `dev`/`build`.
 - `src/data/py/client.ts`: `py(fn, args, files?)` calls a function in
   `fincomp/webapi.py` and gets JSON back.
 - `src/data/google.ts`: the Sheets / Drive / App Data REST calls.

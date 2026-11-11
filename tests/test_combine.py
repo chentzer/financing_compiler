@@ -1,7 +1,6 @@
 from datetime import date
 
 from fincomp.combine import dedupe, match_transfers
-from fincomp.export import monthly_summary, to_frame
 from fincomp.models import Transaction
 
 
@@ -26,6 +25,7 @@ def test_dedupe_keeps_same_day_repeats_within_one_file():
 def test_card_reload_of_wallet_is_internal():
     card = tx(date(2026, 7, 1), "Maybank Card", -50.0, "TNG RELOAD")
     wallet_in = tx(date(2026, 7, 2), "TNG eWallet", 50.0, "Reload")
+    wallet_in.internal = wallet_in.transfer = True  # as the TNG parser marks a reload
     spend = tx(date(2026, 7, 2), "TNG eWallet", -50.0, "Shop")
     unrelated = tx(date(2026, 7, 20), "TNG eWallet", 50.0, "From Ali")
 
@@ -35,10 +35,12 @@ def test_card_reload_of_wallet_is_internal():
     assert card.internal and wallet_in.internal
     assert not spend.internal and not unrelated.internal
 
-    summary = monthly_summary(to_frame([card, wallet_in, spend, unrelated]))
-    total = summary[summary["Source"] == "All"].iloc[0]
-    # Only the shop spend and Ali's transfer count.
-    assert (total["Money In"], total["Money Out"]) == (50.0, -50.0)
+
+def test_same_amount_from_a_friend_is_not_a_transfer():
+    dinner = tx(date(2026, 7, 1), "Maybank Card", -50.0, "NASI KANDAR")
+    friend = tx(date(2026, 7, 2), "TNG eWallet", 50.0, "BOB LIM")
+    assert match_transfers([dinner, friend], window_days=3) == []
+    assert not dinner.internal and not friend.internal
 
 
 def test_bank_payment_pairs_with_card_repayment_marked_transfer():

@@ -86,8 +86,8 @@ def test_rows_and_classification():
     assert "USD 220.00" in txs[2].note and "Fee MYR 10.00" in txs[2].note
 
 
-def test_into_accounts(tmp_path):
-    cfg = Config(answers=tmp_path / "a.json")
+def test_into_accounts():
+    cfg = Config()
     txs = parse_text(STATEMENT)
     assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("spend", "SOME SOFTWARE SUB", 1000.00, "Ryt Bank"),

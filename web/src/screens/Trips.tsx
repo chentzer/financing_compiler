@@ -1,32 +1,35 @@
-import { useLoad } from '../app/context'
+import { useState } from 'react'
+import { errorText, useData, useLoad } from '../app/context'
 import { dayMonth, newestFirst, rm, shortDate } from '../app/format'
-import { href } from '../app/router'
-import type { TripDetail, TripRow } from '../data/Backend'
-import { ErrorBox, Loading } from '../components/ui'
+import { go, href } from '../app/router'
+import { CURRENCIES, currencyCode, rateToRm } from '../data/fx'
+import type { Trip as TripData, TripDetail, TripRow } from '../data/Backend'
+import { ErrorBox, Field, Loading, Sheet } from '../components/ui'
 
-/** Every trip (Settings › Trips) with its total; tap one for its tab's blocks. */
+/** Every trip with its total; tap one for its tab's blocks. Trips are added and changed here. */
 export function Trips({ trip }: { trip?: string }) {
   return trip ? <Trip name={trip} /> : <TripList />
 }
 
 function TripList() {
   const load = useLoad((b) => b.listTrips())
+  const [adding, setAdding] = useState(false)
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
-  if (!load.data.length) {
-    return (
-      <div className="card">
-        <p>No trips yet.</p>
-        <p className="muted small">
-          Add one in <a href={href({ name: 'settings', tab: 'trips' })}>Settings › Trips</a>: its spending moves to its own
-          tab, and its total comes off the month it ends.
-        </p>
-      </div>
-    )
-  }
   const years = [...new Set(load.data.map((t) => t.year))]
   return (
     <div className="stack">
+      <div className="btn-row">
+        <button type="button" className="btn primary" data-tour="add-trip" onClick={() => setAdding(true)}>
+          + Add trip
+        </button>
+      </div>
+      {!load.data.length && (
+        <div className="card">
+          <p>No trips yet.</p>
+          <p className="muted small">A trip's spending moves to its own tab, and its total comes off the month it ends.</p>
+        </div>
+      )}
       {years.map((y) => (
         <section key={y} className="card flush">
           <h3 className="list-title">{y}</h3>
@@ -50,23 +53,29 @@ function TripList() {
           </ul>
         </section>
       ))}
-      <p className="muted small">
-        Dates, currencies and rates are in <a href={href({ name: 'settings', tab: 'trips' })}>Settings › Trips</a>.
-      </p>
+      {adding && <TripSheet taken={load.data.map((t) => t.trip.name)} onClose={() => setAdding(false)} />}
     </div>
   )
 }
 
 function Trip({ name }: { name: string }) {
   const load = useLoad((b) => b.tripDetail(name), [name])
+  const settings = useLoad((b) => b.getSettings())
+  const [editing, setEditing] = useState(false)
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
   const t: TripDetail = load.data
+  const trip = settings.data?.trips.find((x) => x.name === name)
   return (
     <div className="stack">
-      <a href={href({ name: 'trips' })} className="link-hint">
-        ← All trips
-      </a>
+      <div className="btn-row">
+        <a href={href({ name: 'trips' })} className="link-hint">
+          ← All trips
+        </a>
+        <button type="button" className="btn small push-right" disabled={!trip} onClick={() => setEditing(true)}>
+          Edit trip
+        </button>
+      </div>
       <section className="card summary">
         <div className="eyebrow">
           {t.name} · {shortDate(t.start)} – {shortDate(t.end)}
@@ -94,10 +103,7 @@ function Trip({ name }: { name: string }) {
           </div>
         </div>
         {t.currencies.some((c) => !c.rate) && (
-          <p className="muted small">
-            A currency without a rate isn't counted yet: set it in{' '}
-            <a href={href({ name: 'settings', tab: 'trips' })}>Settings › Trips</a>.
-          </p>
+          <p className="muted small">A currency without a rate isn't counted yet: set it with Edit trip.</p>
         )}
       </section>
       <div className="lists-pair">
@@ -115,7 +121,173 @@ function Trip({ name }: { name: string }) {
         />
       )}
       <p className="muted small">To add or move rows, use + Add transaction or a row's Trip field on the Month screen.</p>
+      {editing && trip && (
+        <TripSheet trip={trip} taken={settings.data!.trips.map((x) => x.name).filter((n) => n !== name)} onClose={() => setEditing(false)} />
+      )}
     </div>
+  )
+}
+
+const RESERVED = /^(january|february|march|april|may|june|july|august|september|october|november|december) \d{4}$|^(to update|year end summary)$/i
+
+function TripSheet({ trip, taken, onClose }: { trip?: TripData; taken: string[]; onClose(): void }) {
+  const { backend, changed, toast } = useData()
+  const [t, setT] = useState<TripData>(trip ?? { name: '', start: '', end: '', currencies: [], match: [] })
+  const [match, setMatch] = useState((trip?.match ?? []).join(', '))
+  const [rateBusy, setRateBusy] = useState<number>()
+  const [rateNote, setRateNote] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const [deleting, setDeleting] = useState(false)
+  const setCur = (i: number, c: Partial<TripData['currencies'][number]>) =>
+    setT({ ...t, currencies: t.currencies.map((x, j) => (j === i ? { ...x, ...c } : x)) })
+  const name = t.name.trim()
+  const nameTaken = taken.some((n) => n.toLowerCase() === name.toLowerCase())
+  const nameReserved = RESERVED.test(name)
+  const otherYear = !!trip && !!t.start && t.start.slice(0, 4) !== trip.start.slice(0, 4)
+  const valid = name && !nameTaken && !nameReserved && t.start && t.end && t.start <= t.end && !otherYear
+
+  async function save() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await backend.saveTrip(
+        {
+          ...t,
+          name,
+          currencies: t.currencies.map((c) => ({ ...c, code: c.code.trim().toUpperCase() })).filter((c) => c.code),
+          match: match.split(',').map((m) => m.trim()).filter(Boolean),
+          link: t.link?.trim() || undefined,
+        },
+        trip?.name,
+      )
+      toast(trip ? 'Trip saved' : `Added ${name}`)
+      changed()
+      onClose()
+      if (trip && trip.name !== name) go({ name: 'trips', trip: name })
+    } catch (e) {
+      setError(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const left = await backend.deleteTrip(trip!.name)
+      toast(left ? `Deleted ${trip!.name}. ${left} row(s) with no month stay on its tab, not counted.` : `Deleted ${trip!.name}`)
+      changed()
+      onClose()
+      go({ name: 'trips' })
+    } catch (e) {
+      setError(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet title={trip ? 'Edit trip' : 'New trip'} onClose={onClose}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (valid) save()
+        }}
+      >
+        <Field label="Name" hint={nameTaken ? 'You already have a trip with this name' : nameReserved ? 'That name is taken by the app' : undefined}>
+          <input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} placeholder="e.g. Japan Trip" autoFocus={!trip} />
+        </Field>
+        <div className="two">
+          <Field label="Start" hint={otherYear ? `Stays in ${trip!.start.slice(0, 4)}: add a new trip for another year` : undefined}>
+            <input type="date" value={t.start} onChange={(e) => setT({ ...t, start: e.target.value })} />
+          </Field>
+          <Field label="End" hint={t.start && t.end && t.start > t.end ? 'Must be after the start' : undefined}>
+            <input type="date" value={t.end} onChange={(e) => setT({ ...t, end: e.target.value })} />
+          </Field>
+        </div>
+        <h3>Currencies</h3>
+        <p className="muted small">Each gets its own spending block on the trip tab. None for a trip in RM only.</p>
+        {t.currencies.map((c, i) => (
+          <div key={i} className="table-row">
+            <Field label="Currency">
+              <input value={c.code} onChange={(e) => setCur(i, { code: e.target.value })} placeholder="e.g. JPY" list="currencies" />
+            </Field>
+            <Field label="RM per 1">
+              <input type="number" inputMode="decimal" step="any" value={c.rate ?? ''}
+                onChange={(e) => setCur(i, { rate: e.target.value ? Number(e.target.value) : undefined })} />
+            </Field>
+            <button type="button" className="btn small" disabled={!c.code.trim() || rateBusy === i}
+              onClick={async () => {
+                setRateBusy(i)
+                setRateNote(undefined)
+                try {
+                  const rate = await rateToRm(c.code)
+                  setCur(i, { rate: Number(rate.toPrecision(6)) })
+                  setRateNote(`Today's rate: RM ${rate.toPrecision(6)} per 1 ${currencyCode(c.code)}`)
+                } catch (e) {
+                  setRateNote(errorText(e))
+                } finally {
+                  setRateBusy(undefined)
+                }
+              }}>
+              {rateBusy === i ? 'Looking up…' : "Today's rate"}
+            </button>
+            <button type="button" className="icon-btn" aria-label={`Remove ${c.code || 'currency'}`}
+              onClick={() => setT({ ...t, currencies: t.currencies.filter((_, j) => j !== i) })}>
+              ✕
+            </button>
+          </div>
+        ))}
+        <datalist id="currencies">
+          {CURRENCIES.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={() => setT({ ...t, currencies: [...t.currencies, { code: '' }] })}>
+            + Add currency
+          </button>
+          {rateNote && <span className="muted small">{rateNote}</span>}
+        </div>
+        <Field label="Earlier bookings containing" hint="Comma-separated, e.g. AIRASIA, AGODA">
+          <input value={match} onChange={(e) => setMatch(e.target.value)} />
+        </Field>
+        <Field label="Itinerary link">
+          <input type="url" value={t.link ?? ''} onChange={(e) => setT({ ...t, link: e.target.value })} />
+        </Field>
+        {error && <p className="error-text">{error}</p>}
+        {trip && !deleting && (
+          <button type="button" className="btn ghost danger" onClick={() => setDeleting(true)}>
+            Delete trip…
+          </button>
+        )}
+        {trip && deleting && (
+          <div className="card stack tight danger-box">
+            <p className="small">
+              Delete <strong>{trip.name}</strong>? Its RM spending and money paid back go to the months they happened in.
+              Anything in another currency stays on its tab in Google Sheets, not counted.
+            </p>
+            <div className="btn-row">
+              <button type="button" className="btn danger" disabled={busy} onClick={remove}>
+                Delete trip
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setDeleting(false)}>
+                Keep it
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="btn-row end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || !valid}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Sheet>
   )
 }
 

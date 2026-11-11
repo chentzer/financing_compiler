@@ -79,8 +79,8 @@ def test_rows_types_and_self_transfers():
     assert {t.account for t in txs} == {"Savings ...0001"}
 
 
-def test_into_accounts(tmp_path):
-    cfg = Config(answers=tmp_path / "a.json", rules=[{"match": "GRAB", "category": "Transport"}])
+def test_into_accounts():
+    cfg = Config(rules=[{"match": "GRAB", "category": "Transport"}])
     rows = build_rows(parse_text(STATEMENT), cfg)
     assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source, r.category) for r in rows] == [
         ("spend", "Grab Ride", 12.00, "GX Bank", "Transport"),

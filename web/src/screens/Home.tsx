@@ -140,7 +140,7 @@ export function NegativeTrips({ trips }: { trips: { name: string; total: number 
   return (
     <p className="warn small">
       {neg.map((t) => `${t.name} (${rm(t.total)})`).join(', ')}: more was paid back to you than its spending counts, so it
-      adds to Final. A currency without a rate counts as RM 0: set it in Settings › Trips.
+      adds to Final. A currency without a rate counts as RM 0: set it on the trip in Trips.
     </p>
   )
 }

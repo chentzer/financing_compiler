@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
-import { newestFirst, shortDate } from '../app/format'
+import { newestFirst, shortDate, todayIso } from '../app/format'
 import { go, href } from '../app/router'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import { INVESTMENTS, isInvestment, sheetCategory, type CustomSheet, type SheetRow, type SheetTable, type SheetTableRows } from '../data/Backend'
@@ -339,7 +339,7 @@ function SheetForm({ sheet, existing, section, onClose }: { sheet?: CustomSheet;
 
 function RowForm({ sheet, table, row, onClose }: { sheet: string; table: SheetTableRows; row?: SheetRow; onClose(): void }) {
   const { backend, changed, toast } = useData()
-  const [f, setF] = useState({ date: row?.date ?? new Date().toISOString().slice(0, 10), item: row?.item ?? '', remarks: row?.remarks ?? '' })
+  const [f, setF] = useState({ date: row?.date ?? todayIso(), item: row?.item ?? '', remarks: row?.remarks ?? '' })
   const [amount, setAmount] = useState(row ? String(row.amount) : '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()

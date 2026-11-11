@@ -8,8 +8,8 @@ TNG has shipped two PDF layouts, told apart by the PDF producer:
 - v2 (dompdf and others): 4 columns with Details, Type, Reference No.,
   Amount. Amounts carry their sign.
 
-v1 is read from text positions with pypdf (works in a browser); v2 still
-uses camelot. Column positions come from the original
+v1 is read from text positions with pypdf (works in a browser); v2 is
+refused. Column positions come from the original
 Rexpert/TNG_Statement_in_CSV project (MIT) via the friend's fork.
 """
 
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from pathlib import Path
 
 from pypdf import PdfReader
 
@@ -29,11 +28,10 @@ WALLET = "eWallet"
 GOPLUS = "GO+"
 
 V1_COLUMNS = ["Date", "Status", "Type", "Reference", "Description", "Details", "Amount", "Balance"]
-V2_COLUMNS = ["Details", "Type", "Reference", "Amount"]
 
 # v1 types that take money out of the wallet; anything else is money in,
 # unless the Wallet Balance says otherwise (see parse_v1_rows).
-# Compared with spaces removed and upper-cased, because camelot sometimes
+# Compared with spaces removed and upper-cased, because the PDF sometimes
 # splits words ("DUITNOW_TRANS FERTO").
 WALLET_OUT_TYPES = {
     "PAYMENT",
@@ -92,30 +90,6 @@ def _monthly_earnings(transactions: list[Transaction]) -> list[Transaction]:
                 purpose="GO+ earnings", note=f"{len(group)} daily payouts", file=group[0].file,
             ))
     return sorted(rest, key=lambda t: t.date)
-
-
-def parse_v1_tables(frames: list[pd.DataFrame], file: str = "", holder: str = "") -> list[Transaction]:
-    """camelot DataFrames (one line per frame row) -> transactions."""
-    import pandas as pd
-
-    holder = holder.strip().lower()
-    df = pd.concat(frames, ignore_index=True).fillna("").astype(str)
-    df.columns = V1_COLUMNS
-
-    # Keep transaction rows and their wrapped continuation lines (empty Date).
-    df = df[df["Date"].str.match(r"^\d|^$") & (df["Reference"].str.strip() != "")]
-
-    # Fold continuation lines into the row above.
-    groups: list[dict[str, list[str]]] = []
-    for _, row in df.iterrows():
-        if row["Date"].strip() or not groups:
-            groups.append({c: [] for c in V1_COLUMNS})
-        for c in V1_COLUMNS:
-            if row[c].strip():
-                groups[-1][c].append(row[c].strip())
-
-    rows = [{c: " ".join(v) for c, v in g.items()} for g in groups]
-    return parse_v1_rows(rows, file=file, holder=holder)
 
 
 def parse_v1_rows(rows: list[dict[str, str]], file: str = "", holder: str = "") -> list[Transaction]:
@@ -195,71 +169,8 @@ def parse_v1_rows(rows: list[dict[str, str]], file: str = "", holder: str = "") 
     return _monthly_earnings(transactions)
 
 
-def parse_v2_tables(frames: list[pd.DataFrame], file: str = "") -> list[Transaction]:
-    import pandas as pd
-
-    parts = []
-    for frame in frames:
-        frame = frame.iloc[:-2].copy()  # page footer
-        frame.columns = V2_COLUMNS
-        header = frame["Details"].eq("Details")
-        if header.any():
-            frame = frame.loc[frame.index > header.idxmax()]
-        parts.append(frame)
-    df = pd.concat(parts, ignore_index=True).fillna("").astype(str)
-
-    df["When"] = pd.to_datetime(df["Details"], format="%d/%m/%Y %H:%M", errors="coerce")
-    df.loc[df["When"].notna(), "Details"] = ""
-    # In this layout the date line closes each transaction block, so a row
-    # belongs to the group of the next date line at or below it.
-    df["group"] = df["When"].notna().cumsum().shift(fill_value=0)
-
-    rows = []
-    for _, g in df.groupby("group", sort=True):
-        when = g["When"].dropna()
-        amount = _money(" ".join(g["Amount"]).replace("RM", ""))
-        if when.empty or amount is None:
-            continue
-        rows.append(
-            {
-                "date": when.iloc[0].date(),
-                "type": " ".join(s for s in g["Type"] if s.strip()).strip(),
-                "details": " ".join(s for s in g["Details"] if s.strip()).strip(),
-                "reference": " ".join(s for s in g["Reference"] if s.strip()).strip(),
-                "amount": amount,
-            }
-        )
-
-    transactions = [
-        Transaction(
-            date=r["date"],
-            source=SOURCE,
-            account=WALLET,
-            description=_clean_description(r["details"]),
-            amount=r["amount"],
-            type=r["type"],
-            reference=r["reference"],
-            # Auto-reload top-ups mirror a payment that is listed separately.
-            internal=r["details"] == "Quick Reload Payment",
-            file=file,
-        )
-        for r in rows
-    ]
-
-    # "GO+ Quick Cash In" followed by a matching "eWallet Cash Out" is money
-    # pulled from GO+ to pay for something; the pair nets to zero.
-    for a, b in zip(transactions, transactions[1:]):
-        if (
-            a.description == "GO+ Quick Cash In"
-            and b.description == "eWallet Cash Out"
-            and round(a.amount, 2) == round(-b.amount, 2)
-        ):
-            a.internal = b.internal = True
-    return transactions
-
-
 # v1 column boundaries on the landscape page (left edge of each column),
-# the same positions the original camelot setup used.
+# the same positions the original project used.
 V1_COLUMN_STARTS = [0, 80, 140, 230, 294, 460, 660, 720]
 
 
@@ -280,7 +191,7 @@ def _text_items(page) -> list[tuple[float, float, str]]:
 
 
 def read_v1_rows(reader: PdfReader) -> list[dict[str, str]]:
-    """Rebuild the 8-column v1 table from text positions (no camelot, so it
+    """Rebuild the 8-column v1 table from text positions (so it
     also runs in a browser). Anything in the Date column (a date, a section
     title, the header, the footer) starts a new row; only rows starting with
     a date are kept. Wrapped lines inside a cell are joined with spaces."""
@@ -329,28 +240,4 @@ class TngParser(Parser):
         reader = open_pdf(name, data, password, self.name)
         if detect_version(reader) == 1:
             return parse_v1_rows(read_v1_rows(reader), file=name, holder=holder_name(reader))
-        return self._parse_v2_with_camelot(name, data, password)
-
-    def _parse_v2_with_camelot(self, name: str, data: bytes, password: str) -> list[Transaction]:
-        """The older 4-column layout still needs camelot (CLI only)."""
-        try:
-            import camelot
-        except ImportError as e:
-            raise ParseError(f'{name}: this older TNG layout needs camelot: pip install -e ".[tng]"') from e
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "statement.pdf"
-            path.write_bytes(data)
-            kwargs = {"password": password} if password else {}
-            try:
-                tables = camelot.read_pdf(
-                    str(path), pages="all", flavor="stream", table_regions=["40,710,560,0"],
-                    table_areas=["40,710,560,0"], columns=["170,295,423"], split_text=True,
-                    strip_text="\n", **kwargs,
-                )
-            except Exception as e:
-                raise ParseError(f"{name}: camelot could not read it ({e}). Check passwords.tng") from e
-        if not tables:
-            raise ParseError(f"{name}: no transaction table found")
-        return parse_v2_tables([t.df for t in tables], file=name)
+        raise ParseError(f"{name}: this older TNG statement layout can't be read. Download it again from the TNG app.")

@@ -13,6 +13,12 @@ export function monthName(year: number, month: number): string {
   return `${MONTHS[month - 1]} ${year}`
 }
 
+/** Today on this device, as YYYY-MM-DD (toISOString is UTC: yesterday before 8am in Malaysia). */
+export function todayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function shortDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   return `${d} ${MONTHS[m - 1].slice(0, 3)} ${y}`

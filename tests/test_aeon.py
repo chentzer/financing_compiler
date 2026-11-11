@@ -72,12 +72,12 @@ from fincomp.accounts import build_rows, short_name
 from fincomp.config import Config
 
 
-def cfg(tmp_path, **kw):
-    return Config(answers=tmp_path / "answers.json", **kw)
+def cfg(**kw):
+    return Config(**kw)
 
 
-def test_rules_on_aeon_statement(tmp_path):
-    c = cfg(tmp_path)
+def test_rules_on_aeon_statement():
+    c = cfg()
     rows = build_rows(parse_text(STATEMENT), c)
     got = [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in rows]
     # Rule 1: pot moves and transfers to/from "JANE TAN" are gone.

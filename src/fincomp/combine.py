@@ -39,38 +39,37 @@ def match_transfers(transactions: list[Transaction], window_days: int) -> list[T
     in another within `window_days`, and mark both sides internal so the
     move is not counted as spending and income.
 
-    Matching is by amount and date only, so review the Transfers sheet.
+    At least one side must be a row a parser knows is your own money moving:
+    an RM50 dinner and RM50 from a friend the next day aren't a transfer.
 
-    Rows the parsers already know are transfers are paired with each other
-    first; only then may an ordinary row (a card charge that reloaded a
-    wallet) take a leftover partner. Otherwise a RM6.30 Grab ride could take
-    the partner of a RM6.30 transfer made the same day.
+    Rows the parsers know are transfers are paired with each other first;
+    only then may an ordinary row (a card charge that reloaded a wallet) take
+    a leftover partner. Otherwise a RM6.30 Grab ride could take the partner
+    of a RM6.30 transfer made the same day.
     """
     used: set[int] = set()
     matches = []
     known = [t for t in transactions if t.transfer]
-    _pair(known, known, window_days, used, matches)
+    _pair(known, window_days, used, matches)
     # Splitwise rows are money between you and friends, never your own accounts.
     open_ = [t for t in transactions if (not t.internal or t.transfer) and t.source != "Splitwise"]
-    _pair(open_, open_, window_days, used, matches)
+    _pair(open_, window_days, used, matches)
     return matches
 
 
-def _pair(
-    out_pool: list[Transaction], in_pool: list[Transaction], window_days: int,
-    used: set[int], matches: list[TransferMatch],
-) -> None:
-    outs = sorted((t for t in out_pool if t.amount < 0 and id(t) not in used), key=lambda t: t.date)
-    ins = [t for t in in_pool if t.amount > 0]
+def _pair(pool: list[Transaction], window_days: int, used: set[int], matches: list[TransferMatch]) -> None:
+    outs = sorted((t for t in pool if t.amount < 0 and id(t) not in used), key=lambda t: t.date)
+    ins: dict[float, list[Transaction]] = defaultdict(list)
+    for t in pool:
+        if t.amount > 0:
+            ins[round(t.amount, 2)].append(t)
 
     for out in outs:
         best = None
-        for candidate in ins:
-            if id(candidate) in used:
+        for candidate in ins[round(-out.amount, 2)]:
+            if id(candidate) in used or not (out.transfer or candidate.transfer):
                 continue
             if (candidate.source, candidate.account) == (out.source, out.account):
-                continue
-            if round(candidate.amount, 2) != round(-out.amount, 2):
                 continue
             gap = abs((candidate.date - out.date).days)
             if gap > window_days:

@@ -15,6 +15,7 @@ The compiled result is kept here between those calls (one user, one page).
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict
 from datetime import date
 
@@ -39,12 +40,11 @@ def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: l
     config.me = [m for m in (me or []) if m]
     earlier = S.ledger_from_rows(ledger or [])
     # Imported here: the parsers need pypdf, which the web app only loads for uploads.
-    from .pipeline import compile_statements
+    from .pipeline import compile_statements, keep_earlier
 
     compiled = compile_statements([(f["name"], bytes(f["data"])) for f in files], config, earlier=earlier)
     _state.update(config=config, compiled=compiled, prepared={})
-    names = {f["name"] for f in files}
-    kept = [t for t in earlier if t.file not in names]
+    kept = keep_earlier(earlier, compiled.parsed)
     return {
         "files": [asdict(f) | {"ok": f.ok} for f in compiled.files],
         "ledger": S.ledger_rows(kept + compiled.parsed),  # rewrite the Ledger tab with this (RAW)
@@ -53,12 +53,6 @@ def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: l
         "duplicates": compiled.duplicates,
         "toUpdate": sum(1 for r in compiled.rows if r.needs),
     }
-
-
-def recompile(settings: dict, passwords: dict, ledger: list[list]) -> dict:
-    """Same as an upload with no new files: re-applies rules to everything
-    already uploaded (e.g. after editing Settings)."""
-    return compile_upload([], settings, passwords, ledger)
 
 
 def spreadsheet_title(year: int) -> str:
@@ -86,7 +80,7 @@ def finish_year(year: int, sheet_ids: dict, values: dict) -> dict:
     )
     return {
         "clear": done.clear, "data": done.data, "requests": done.requests,
-        "added": done.added, "already": done.already, "toUpdate": done.to_update,
+        "added": done.added, "already": done.already, "toUpdate": done.to_update, "minRows": done.min_rows,
     }
 
 
@@ -214,9 +208,9 @@ def settings_template() -> dict:
     return {"title": S.SETTINGS_TITLE, "tabs": tabs, "hidden": sorted(S.HIDDEN), "passwordsFile": S.PASSWORDS_FILE}
 
 
-# ---- whole-book reads, the column upgrade, rows placed by hand -----------------
+# ---- whole-book reads, rows placed by hand ---------------------------------------
 #
-# These use the Settings last given to use_settings() (or an upload/recompile).
+# These use the Settings last given to use_settings() (or an upload).
 
 
 def use_settings(settings: dict) -> None:
@@ -231,30 +225,6 @@ def book_ranges(year: int, titles: list[str]) -> list[str]:
     """Every month and trip tab's rows, to find a row by key anywhere in the book."""
     months, trips = sheetplan.month_and_trip_tabs(list(titles), int(year), _state["config"])
     return sheetplan.data_ranges(months, trips)
-
-
-def upgrade_headers(year: int, titles: list[str]) -> list[str]:
-    return sheetplan.header_ranges(int(year), list(titles), _state["config"])
-
-
-def upgrade_columns(sheet_ids: dict, headers: dict) -> dict:
-    """Which tabs still have the old columns, and the column inserts for them."""
-    old = sheetplan.old_tabs(headers)
-    return {
-        "old": old,
-        "requests": sheetplan.insert_columns(_ids(sheet_ids), old),
-        "finish": old + sheetplan.unfinished_tabs(headers),  # then upgrade_finish these
-        "trips": sheetplan.trip_versions(headers),  # then upgrade_trips these
-    }
-
-
-def upgrade_finish(sheet_ids: dict, old: list[str], values: dict) -> dict:
-    """After the inserts: headers, summaries, formats, Source and Remarks.
-    Call recompile() first so the rows' Source and statement text are known."""
-    compiled = _state.get("compiled")
-    rows = compiled.rows if compiled else []
-    clear, data, requests = sheetplan.upgrade_finish(_ids(sheet_ids), list(old), values, rows, _state["config"])
-    return {"clear": clear, "data": data, "requests": requests}
 
 
 def take_row(key: str, values: dict, sheet_ids: dict) -> dict:
@@ -312,16 +282,17 @@ def prepare_rows(year: int, titles: list[str], rows: list[dict], target: str, cr
             "widths": prepared.widths}
 
 
-def finish_rows(year: int, sheet_ids: dict, values: dict) -> dict:
+def finish_rows(year: int, sheet_ids: dict, values: dict, moving: bool = False) -> dict:
     done = sheetplan.finish(int(year), _state["prepared"][int(year)], _ids(sheet_ids), values, _state["placed"],
-                            _state["config"], to_update=False)
-    return {"clear": done.clear, "data": done.data, "requests": done.requests, "added": done.added}
+                            _state["config"], to_update=False, moving=moving)
+    return {"clear": done.clear, "data": done.data, "requests": done.requests, "added": done.added,
+            "minRows": done.min_rows}
 
 
 def _trip(name: str):
     trip = next((t for t in _state["config"].trips if t.name == name), None)
     if trip is None:
-        raise ValueError(f'No trip called "{name}" in Settings › Trips.')
+        raise ValueError(f'No trip called "{name}" in Trips.')
     return trip
 
 
@@ -329,7 +300,7 @@ def _currency_index(trip, currency: str) -> int:
     codes = [c.strip().upper() for c, _ in trip.currencies()]
     want = (currency or "").strip().upper()
     if want not in codes:
-        raise ValueError(f'{trip.name} has no {currency} block: add {currency} to the trip in Settings › Trips.')
+        raise ValueError(f'{trip.name} has no {currency} block: add {currency} to the trip in Trips.')
     return codes.index(want)
 
 
@@ -358,6 +329,48 @@ def trip_refresh(sheet_ids: dict, names: list[str] | None = None) -> dict:
     data, requests = sheetplan.trip_refresh(_ids(sheet_ids), _state["config"],
                                             None if names is None else set(names))
     return {"data": data, "requests": requests}
+
+
+def links(year: int, titles: list[str]) -> list[dict]:
+    """Every month's Trips and Final, and the Year End Summary, after trips changed."""
+    return sheetplan.links_plan(int(year), list(titles), _state["config"])
+
+
+def trip_leave_ranges(name: str) -> list[str]:
+    """A trip's RM spending block, then its paid-back and other blocks, for trip_leaving()."""
+    return tab_ranges(name, True) + [spec["range"] for spec in trip_extra_ranges(name)]
+
+
+def trip_leaving(name: str, values: list[list[list]]) -> dict:
+    """A trip being deleted: its RM rows as fields for their months' tabs
+    (prepare_rows), and how many rows have no month to go to (foreign money,
+    or no date). `values` as trip_leave_ranges, read with UNFORMATTED_VALUE."""
+    rows, left = [], 0
+
+    def leave(kind, where, day, item, amount, key, **more):
+        nonlocal left
+        day = sheetplan.as_date(day) if day not in ("", None) else None
+        if not day:
+            left += 1
+            return
+        # Typed by hand: a key from its contents, like an imported row's.
+        key = str(key or "") or "m-" + hashlib.sha1(repr((name, kind, where)).encode()).hexdigest()[:12]
+        rows.append({"kind": kind, "date": day.isoformat(), "item": str(item), "amount": sheetplan.as_amount(amount),
+                     "key": key, **more})
+
+    def filled(block):
+        return [r for r in block if any(str(v).strip() for v in r)]
+
+    spend, paid, *others = [*values, [], []]
+    for i, r in enumerate(filled(spend)):
+        d, item, cat, amt, imp, source, remarks, key = (list(r) + [""] * 8)[:8]
+        leave("spend", (i, r), d, item, amt, key, category=str(cat), importance=str(imp), source=str(source),
+              remarks=str(remarks))
+    for i, r in enumerate(filled(paid)):
+        d, item, amt, remarks, key = (list(r) + [""] * 5)[:5]
+        leave("earn", (i, r), d, item, amt, key, remarks=str(remarks))
+    left += sum(len(filled(block)) for block in others)
+    return {"rows": rows, "left": left}
 
 
 def trips() -> list[dict]:
@@ -450,31 +463,6 @@ def trip_extras(trip_title: str, now: list[list[list]], paid: list[dict], cash: 
             out.append({"range": f"{spec['range'].split('!')[0]}!{first_col}{start}:{last_col}{start + len(fresh) - 1}",
                         "values": fresh})
     return out
-
-
-def upgrade_trip_ranges(trips: dict) -> list[str]:
-    """Rows of the trip tabs being rebuilt (trips: {title: version})."""
-    return [f"{sheetplan.quote(t)}!A4:AZ" for t in trips]
-
-
-def upgrade_trips(year: int, titles: list[str], sheet_ids: dict, trips: dict, values: dict) -> dict:
-    """Trip tabs in an older layout rewritten in the current one, then every
-    month's Trips/Final and the Year End Summary. Call recompile() first."""
-    compiled = _state.get("compiled")
-    by_key = {r.key: r for r in compiled.rows} if compiled else {}
-    config = _state["config"]
-    clear, data, requests = [], [], []
-    for title, version in trips.items():
-        trip = next((t for t in config.trips if t.name == title), None)
-        if trip is None:
-            continue
-        rng = f"{sheetplan.quote(title)}!A4:AZ"
-        c, d, r = sheetplan.trip_rebuild(trip, version, values.get(rng, []), by_key, config, int(sheet_ids[title]))
-        clear += c
-        data += d
-        requests += r
-    data += sheetplan.links_plan(int(year), list(titles), config)
-    return {"clear": clear, "data": data, "requests": requests}
 
 
 # ---- custom sheets (Sheets section) ------------------------------------------------

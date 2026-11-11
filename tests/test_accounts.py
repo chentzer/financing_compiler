@@ -1,13 +1,9 @@
 from datetime import date
-from pathlib import Path
 
-import gspread
-import openpyxl
 import pytest
 
-from fincomp import gsheets
+from fincomp import sheetplan
 from fincomp.accounts import build_rows, month_layout, month_links, new_rows, plan, trip_layout
-from fincomp.accounts_xlsx import write_accounts_xlsx
 from fincomp.config import Config, Trip
 from fincomp.models import Transaction
 
@@ -149,89 +145,46 @@ def test_final_subtracts_trip_in_its_end_month():
     assert links["December 2026"]["X5"] == 0
 
 
-def test_local_xlsx(tmp_path: Path):
-    cfg = config(trips=[JAPAN])
-    (path,) = write_accounts_xlsx(tmp_path, plan(build_rows(sample() + japan_sample(), cfg), cfg), cfg)
-    assert path.name == "2026 Accounts.xlsx"
-    wb = openpyxl.load_workbook(path)
-    assert wb.sheetnames == ["To Update", "March 2026", "July 2026", "August 2026", "November 2026", "Japan Trip", "Year End Summary"]
-    ws = wb["July 2026"]
-    assert [ws[f"{c}3"].value for c in "BCDEG"] == ["GRAB* RIDE", "Transport", 12.0, "Essential", "GRAB* RIDE"]
-    assert [ws[f"{c}3"].value for c in "QR"] == ["SALARY", 3000.0]
-    assert (ws["F3"].value, ws["S3"].value) == ("TNG eWallet", "CIMB")  # Source: the bank or wallet
-    assert ws.column_dimensions["H"].hidden and ws.column_dimensions["U"].hidden
-    assert wb["August 2026"]["X6"].value == "='July 2026'!X6+X3-X4-X5"
-    assert wb["November 2026"]["X5"].value == "='Japan Trip'!Q4"
-    trip = wb["Japan Trip"]
-    assert [trip[f"{c}4"].value for c in "BD"] == ["AIRASIA BERHAD", 225.0]
-    summary = wb["Year End Summary"]
-    assert summary["B2"].value.endswith("+B4") and summary["B4"].value == "='Japan Trip'!Q4"
-
-
-# ---- Google Sheets sync against a fake gspread --------------------------
-
-
-class FakeWS:
-    def __init__(self, title, id_):
-        self.title, self.id = title, id_
-        self.col_count = 26
-
-    def resize(self, cols):
-        self.col_count = cols
+# ---- Google Sheets sync: sheetplan's plans run against a fake Drive ---------
 
 
 class FakeSheet:
-    url = "https://docs.google.com/spreadsheets/d/fake"
-
     def __init__(self, tabs=("Sheet1",)):
-        self.tabs = [FakeWS(t, i) for i, t in enumerate(tabs)]
-        self.values: dict[str, list[list]] = {}  # range -> rows, for values_batch_get
+        self.tabs = list(tabs)
+        self.values: dict[str, list[list]] = {}  # range -> rows, what a read returns
         self.writes: list[dict] = []
         self.requests: list[dict] = []
-
-    def worksheets(self):
-        return list(self.tabs)
-
-    def add_worksheet(self, title, rows, cols, index=None):
-        ws = FakeWS(title, len(self.tabs) + 100)
-        self.tabs.insert(len(self.tabs) if index is None else index, ws)
-        return ws
-
-    def del_worksheet(self, ws):
-        self.tabs.remove(ws)
-
-    def values_batch_get(self, ranges, params=None):
-        return {"valueRanges": [{"values": self.values.get(r, [])} for r in ranges]}
-
-    def values_batch_update(self, body):
-        self.writes = body["data"]
-
-    def batch_update(self, body):
-        self.requests = body["requests"]
-
-    def values_clear(self, rng):
-        self.cleared = rng
+        self.cleared: list[str] = []
 
 
-class FakeClient:
+class FakeDrive:
+    """What the app does in PyodideBackend.syncBook, without the HTTP."""
+
     def __init__(self):
         self.sheets: dict[str, FakeSheet] = {}
 
-    def open(self, title):
-        if title not in self.sheets:
-            raise gspread.SpreadsheetNotFound
-        return self.sheets[title]
-
-    def create(self, title, folder_id=None):
-        self.sheets[title] = FakeSheet()
-        return self.sheets[title]
+    def upload(self, tabs_by_year, config, answers=None):
+        results = []
+        for year, tabs in tabs_by_year.items():
+            title = config.google.spreadsheet.replace("{year}", str(year))
+            created = title not in self.sheets
+            sheet = self.sheets.setdefault(title, FakeSheet())
+            prepared = sheetplan.prepare(year, list(sheet.tabs), tabs, config, created)
+            for added in prepared.add:
+                sheet.tabs.insert(added.index, added.title)
+            for gone in prepared.delete:
+                sheet.tabs.remove(gone)
+            values = {r: sheet.values.get(r, []) for r in prepared.reads}
+            ids = {t: i for i, t in enumerate(sheet.tabs)}
+            done = sheetplan.finish(year, prepared, ids, values, tabs, config, answers)
+            sheet.writes, sheet.requests, sheet.cleared = done.data, done.requests, done.clear
+            results.append(done)
+        return results
 
 
 @pytest.fixture
-def fake(monkeypatch):
-    client = FakeClient()
-    monkeypatch.setattr(gsheets, "connect", lambda g: client)
-    return client
+def fake():
+    return FakeDrive()
 
 
 def writes(sheet):
@@ -239,12 +192,12 @@ def writes(sheet):
 
 
 def titles(sheet):
-    return [t.title for t in sheet.tabs]
+    return list(sheet.tabs)
 
 
 def test_first_upload_creates_year_sheet(fake):
     cfg = config()
-    (result,) = gsheets.upload(plan(build_rows(sample(), cfg), cfg), cfg)
+    (result,) = fake.upload(plan(build_rows(sample(), cfg), cfg), cfg)
 
     sheet = fake.sheets["2026 Accounts"]
     assert titles(sheet) == ["To Update", "July 2026", "August 2026", "Year End Summary"]
@@ -262,7 +215,7 @@ def test_first_upload_creates_year_sheet(fake):
 def test_rerun_appends_only_new_rows_and_keeps_edits(fake):
     cfg = config()
     rows = build_rows(sample(), cfg)
-    gsheets.upload(plan(rows, cfg), cfg)
+    fake.upload(plan(rows, cfg), cfg)
     sheet = fake.sheets["2026 Accounts"]
 
     # The sheet now holds the first upload, with a category picked by hand
@@ -277,7 +230,7 @@ def test_rerun_appends_only_new_rows_and_keeps_edits(fake):
     sheet.values["'August 2026'!A3:H"] = [[46000, r.item, "", r.amount, "", "", "", r.key] for r in aug]
 
     more = sample() + [tx(date(2026, 7, 20), -30.0, "GRAB* FOOD")]
-    (result,) = gsheets.upload(plan(build_rows(more, cfg), cfg), cfg)
+    (result,) = fake.upload(plan(build_rows(more, cfg), cfg), cfg)
 
     w = writes(sheet)
     # One new row, below the 6 existing ones (rows 3-8); nothing above rewritten.
@@ -292,7 +245,7 @@ def test_trip_tab_slots_in_without_moving_your_tabs(fake):
     # An existing year sheet with a tab you made yourself.
     fake.sheets["2026 Accounts"] = FakeSheet(["January 2026", "Chinese New Year", "November 2026", "December 2026", "Year End Summary"])
 
-    gsheets.upload(plan(build_rows(japan_sample(), cfg), cfg), cfg)
+    fake.upload(plan(build_rows(japan_sample(), cfg), cfg), cfg)
     sheet = fake.sheets["2026 Accounts"]
     assert titles(sheet) == [
         "To Update", "January 2026", "Chinese New Year", "March 2026", "November 2026", "Japan Trip", "December 2026", "Year End Summary",
@@ -308,20 +261,23 @@ def test_trip_tab_slots_in_without_moving_your_tabs(fake):
 def test_trip_added_later_skips_rows_already_on_month_tab(fake):
     cfg = config()
     rows = build_rows(japan_sample(), cfg)
-    gsheets.upload(plan(rows, cfg), cfg)
+    fake.upload(plan(rows, cfg), cfg)
     sheet = fake.sheets["2026 Accounts"]
     nov = [r for r in rows if r.date.month == 11 and r.kind == "spend"]
     sheet.values["'November 2026'!A3:H"] = [[46000, r.item, "", r.amount, "", "", "", r.key] for r in nov]
 
     # Now the trip is configured: rows already on November aren't duplicated.
     cfg = config(trips=[JAPAN])
-    gsheets.upload(plan(build_rows(japan_sample(), cfg), cfg), cfg)
+    fake.upload(plan(build_rows(japan_sample(), cfg), cfg), cfg)
     trip_rows = [v for r, vs in writes(sheet).items() if r.startswith("'Japan Trip'!A4") for v in vs]
     assert "AGODA HOTEL OSAKA" not in [v[1] for v in trip_rows]
 
 
-def test_upload_without_credentials_explains_setup(tmp_path):
-    cfg = Config()
-    cfg.google.credentials = tmp_path / "missing.json"
-    with pytest.raises(gsheets.UploadError, match="README"):
-        gsheets.connect(cfg.google)
+def test_to_update_tab_is_grown_before_it_is_written_and_cleared(fake):
+    cfg = config()
+    (done,) = fake.upload(plan(build_rows(sample(), cfg), cfg), cfg)
+    table = next(w for w in fake.sheets["2026 Accounts"].writes if w["range"].startswith("'To Update'"))
+    # Each closed card deletes a row of that tab, so it may have shrunk: never assume its size.
+    assert fake.sheets["2026 Accounts"].cleared == [f"'To Update'!A{len(table['values']) + 1}:H"]
+    assert done.min_rows["To Update"] == len(table["values"])
+    assert done.min_rows["July 2026"] >= 3  # and the month tabs rows are added to

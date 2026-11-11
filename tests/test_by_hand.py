@@ -1,91 +1,13 @@
-"""Converting old tabs to the Source / gap-column layout, and rows placed by
-hand in the app: added, or moved to a trip."""
+"""Rows placed by hand in the app: added, or moved to a trip."""
 
 from datetime import date
 
 from fincomp import sheetplan, webapi
 from fincomp import settings as S
-from fincomp.accounts import AccountRow
 from fincomp.config import Config, Trip
 
 JAPAN = Trip("Japan Trip", date(2026, 11, 1), date(2026, 11, 9), currency="Yen")
 PENANG = Trip("Penang Trip", date(2026, 9, 1), date(2026, 9, 3))
-
-
-def test_old_tabs_are_found_and_get_columns_inserted_right_to_left():
-    headers = {
-        "'September 2026'!A2:H2": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks", "Key"]],
-        "'October 2026'!A2:H2": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key"]],
-        "'Japan Trip'!A3:H3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks", "Key"]],
-    }
-    old = sheetplan.old_tabs(headers)
-    assert old == ["September 2026"]  # trip tabs are rebuilt instead (trip_versions)
-    # Inserted but cut short before the headers were rewritten: only finished, never inserted again.
-    half = {"'May 2026'!A2:H2": [["Date", "Item", "Category", "Amount (RM)", "Importance", "", "Remarks", "Key"]]}
-    assert sheetplan.old_tabs(half) == [] and sheetplan.unfinished_tabs(half) == ["May 2026"]
-    reqs = sheetplan.insert_columns({"September 2026": 1, "Japan Trip": 2}, old)
-    starts = [(r["insertDimension"]["range"]["sheetId"], r["insertDimension"]["range"]["startIndex"]) for r in reqs]
-    assert starts == [(1, 18), (1, 16), (1, 7), (1, 5)]
-    trips = {
-        "'Japan Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Remarks", "Key"]],
-        "'Bali Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key"]],
-        "'Cebu Trip'!A3:Z3": [["Date", "Item", "Category", "Amount (RM)", "Importance", "Source", "Remarks", "Key", "",
-                               "Date", "From", "Amount (RM)", "Remarks", "Key", "", "Summary"]],
-    }
-    assert sheetplan.trip_versions(trips) == {"Japan Trip": "v1", "Bali Trip": "v2"}  # Cebu is current
-
-
-def test_old_trip_tab_rebuilt_with_its_rows():
-    trip = Trip("Japan Trip", date(2026, 11, 1), date(2026, 11, 9), currency="JPY", rate=0.03)
-    config = Config(trips=[trip])
-    v2_rows = [  # A-G RM + key H, J-O yen spending, T-W yen received
-        [46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k1", "", 46331, "Ramen", "Food", 1200, "", "", "", "", "",
-         "", 46320, "Money Exchange", 10000, ""],
-        ["", "", "", "", "", "", "", "", "", 46332, "Train", "Transport", 800, "", "", "", "", "", "", "", "", "", ""],
-    ]
-    clear, data, requests = sheetplan.trip_rebuild(trip, "v2", v2_rows, {}, config, 7)
-    cells = {d["range"]: d["values"] for d in data}
-    assert clear == ["'Japan Trip'!A1:AE1000"]
-    assert cells["'Japan Trip'!A4:H4"] == [[46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k1"]]
-    assert cells["'Japan Trip'!S4:X5"][1][:4] == [46332, "Train", "Transport", 800]
-    assert cells["'Japan Trip'!Z4:AD4"] == [[46320, "Money Exchange", "JPY", 10000, ""]]
-    assert cells["'Japan Trip'!Q4"] == [["=Q5-Q6+Q10"]]
-    assert any("hiddenByUser" in str(r) for r in requests)
-
-
-def test_upgrade_fills_source_and_swaps_automatic_remarks_only():
-    config = Config()
-    rows = [
-        AccountRow("spend", date(2026, 9, 5), "Lunch", 16.4, "BOB LIM - DuitNowID - lunch", "k1", who="To Bob",
-                   source="AEON Bank"),
-        AccountRow("spend", date(2026, 9, 6), "SHOPEE MY", 63.6, "SHOPEE MY", "k2", who="SHOPEE MY", source="Card"),
-        AccountRow("spend", date(2026, 9, 7), "Dinner", 40, "BOB LIM - DuitNow", "k3", who="To Bob", source="TNG"),
-        AccountRow("earn", date(2026, 9, 16), "Payback", 107, "AMY WONG - DuitNowQR", "k4", who="From Amy",
-                   source="TNG"),
-    ]
-    # As read after the inserts: Source (F / S) empty, Remarks (G / T) as fincomp or you left them.
-    values = {
-        "'September 2026'!A3:H": [
-            [46270, "Lunch", "Food", 16.4, "", "", "To Bob", "k1"],
-            [46271, "SHOPEE MY", "Shopping", 63.6, "", "", "Card", "k2"],
-            [46272, "Dinner", "Food", 40, "", "", "birthday treat", "k3"],  # your own note stays
-            [46273, "Cash", "Food", 6, "", "", "", ""],  # typed by hand: untouched
-        ],
-        "'September 2026'!P3:U": [[46281, "Payback", 107, "", "From Amy", "k4"]],
-    }
-    clear, data, requests = sheetplan.upgrade_finish({"September 2026": 5}, ["September 2026"], values, rows, config)
-    cells = {d["range"]: d["values"][0][0] for d in data}
-    assert cells["'September 2026'!F3"] == "AEON Bank" and cells["'September 2026'!G3"] == "BOB LIM - DuitNowID - lunch"
-    assert cells["'September 2026'!F4"] == "Card" and cells["'September 2026'!G4"] == "SHOPEE MY"
-    assert cells["'September 2026'!F5"] == "TNG" and "'September 2026'!G5" not in cells
-    assert "'September 2026'!F6" not in cells
-    assert cells["'September 2026'!S3"] == "TNG" and cells["'September 2026'!T3"] == "AMY WONG - DuitNowQR"
-    # New headers and summaries, the old summary area cleared first.
-    assert cells["'September 2026'!G2"] == "Remarks" and cells["'September 2026'!W6"] == "Final"
-    assert clear == ["'September 2026'!J3:N40"]
-    hidden = [r["updateDimensionProperties"]["range"]["startIndex"] for r in requests
-              if r.get("updateDimensionProperties", {}).get("properties", {}).get("hiddenByUser")]
-    assert hidden == [7, 20]  # H and U: the keys
 
 
 def settings_with(*trips: Trip) -> dict:
@@ -146,3 +68,52 @@ def test_trip_cash_in_its_currency_and_rate_refresh():
     cells = {d["range"]: d["values"][0][0] for d in out["data"]}
     assert cells["'Japan Trip'!Q9"] == 0.031 and cells["'Japan Trip'!X3"] == "Remarks"
     assert all(r[next(iter(r))].get("range", {}).get("sheetId", 4) == 4 for r in out["requests"])
+
+
+def test_move_adds_first_and_is_safe_to_retry():
+    webapi.use_settings(settings_with(JAPAN))
+    titles = ["To Update", "November 2026", "Japan Trip", "Year End Summary"]
+    ids = {t: i for i, t in enumerate(titles)}
+    # Still on the month: a move puts it on the trip anyway, and says where it came from.
+    month = {"'November 2026'!A3:H": [[46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k9"]]}
+    row = webapi.take_row("k9", month, ids)["row"]
+    assert row["tab"] == "November 2026"
+    prep = webapi.prepare_rows(2026, titles, [row], "Japan Trip")
+    reads = {r: [] for r in prep["reads"]} | month
+    assert webapi.finish_rows(2026, ids, reads, True)["added"] == 1
+    assert webapi.finish_rows(2026, ids, reads)["added"] == 0  # a normal placing would skip it
+    # Tried again after the first try got that far: it isn't put there twice.
+    reads["'Japan Trip'!A4:H"] = [[46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k9"]]
+    assert webapi.finish_rows(2026, ids, reads, True)["added"] == 0
+
+
+def test_a_formula_amount_moves_with_its_value():
+    webapi.use_settings(settings_with(JAPAN))
+    # Read with UNFORMATTED_VALUE, so =150/3 arrives as 50.
+    values = {"'November 2026'!A3:H": [[46330, "Dinner split", "Food", 50, "", "", "", "k1"]]}
+    assert webapi.take_row("k1", values, {"November 2026": 1})["row"]["amount"] == 50.0
+
+
+def test_date_typed_in_sheets_reads_as_a_date():
+    tabs = {S.TRIPS: [S.HEADERS[S.TRIPS], ["Japan", 46327, 46335, "", "", "", "", ""],
+                      ["Broken", "next week", "2026-01-02", "", "", "", "", ""]]}
+    (trip,) = S.config_from_tabs(tabs).trips  # the unreadable one is left out, not a crash
+    assert (trip.start, trip.end) == (date(2026, 11, 1), date(2026, 11, 9))
+
+
+def test_deleting_a_trip_sends_its_rm_rows_to_their_months():
+    webapi.use_settings(settings_with(JAPAN))
+    assert webapi.trip_leave_ranges("Japan Trip")[:2] == ["'Japan Trip'!A4:H", "'Japan Trip'!J4:N"]
+    values = [
+        [[46330, "Hotel", "Bills", 300, "", "Card", "AGODA", "k1"], [46331, "Cash lunch", "Food", 20, "", "", "", ""],
+         ["", "No date", "", 5, "", "", "", ""]],
+        [[46332, "Bob", 45, "payback", "m-1"]],
+        [[46331, "Ramen", "Food", 1200, "", ""]],  # yen: no month to go to
+        [],
+    ]
+    out = webapi.trip_leaving("Japan Trip", values)
+    assert out["left"] == 2
+    spend, typed, paid = out["rows"]
+    assert (spend["kind"], spend["date"], spend["key"]) == ("spend", "2026-11-04", "k1")
+    assert typed["key"].startswith("m-") and typed["key"] == webapi.trip_leaving("Japan Trip", values)["rows"][1]["key"]
+    assert (paid["kind"], paid["item"], paid["amount"], paid["key"]) == ("earn", "Bob", 45.0, "m-1")

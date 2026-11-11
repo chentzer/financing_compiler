@@ -1,9 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { PinGate } from '../components/PinGate'
-import { CURRENCIES, currencyCode, rateToRm } from '../data/fx'
 import { errorText, useData, useLoad } from '../app/context'
-import { shortDate } from '../app/format'
 import { href } from '../app/router'
 import { Chips, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 import {
@@ -13,14 +11,12 @@ import {
   type Person,
   type Rule,
   type Settings as SettingsData,
-  type Trip,
 } from '../data/Backend'
 
 const TABS = [
   { id: 'rules', label: 'Rules' },
   { id: 'categories', label: 'Categories' },
   { id: 'people', label: 'People' },
-  { id: 'trips', label: 'Trips' },
   { id: 'payees', label: 'Own payees' },
   { id: 'passwords', label: 'Passwords' },
   { id: 'uploads', label: 'Uploads' },
@@ -50,7 +46,7 @@ export function Settings({ tab = 'rules', account }: { tab?: string; account: Re
   )
 }
 
-/** Rules / People / Trips / Own payees: edit a copy, save the whole Settings sheet. */
+/** Rules / People / Own payees: edit a copy, save the whole Settings sheet. */
 function SettingsTab({ tab }: { tab: string }) {
   const { backend, changed, toast } = useData()
   const load = useLoad((b) => b.getSettings())
@@ -89,28 +85,6 @@ function SettingsTab({ tab }: { tab: string }) {
             person={s.people[editing.index]}
             onClose={close}
             onSave={(p) => save({ ...s, people: replace(s.people, editing.index, p) })}
-          />
-        )}
-      </>
-    )
-  }
-  if (tab === 'trips') {
-    return (
-      <>
-        <ListCard
-          intro="Each trip gets its own tab. Its total comes off the Final of the month it ends."
-          items={s.trips.map((t) => ({
-            title: t.name,
-            sub: `${shortDate(t.start)} – ${shortDate(t.end)}${t.currencies.length ? ` · ${t.currencies.map((c) => c.code).join(', ')}` : ''}`,
-          }))}
-          onEdit={(index) => setEditing({ index })}
-          addLabel="Add trip"
-        />
-        {editing && (
-          <TripSheet
-            trip={s.trips[editing.index]}
-            onClose={close}
-            onSave={(t) => save({ ...s, trips: replace(s.trips, editing.index, t) })}
           />
         )}
       </>
@@ -382,97 +356,6 @@ function PersonSheet({ person, onClose, onSave }: { person?: Person; onClose(): 
           <input value={p.shownAs} onChange={(e) => setP({ ...p, shownAs: e.target.value })} />
         </Field>
         <SheetButtons isNew={!person} onDelete={() => onSave(null)} onClose={onClose} canSave={!!p.statementName.trim() && !!p.shownAs.trim()} />
-      </form>
-    </Sheet>
-  )
-}
-
-function TripSheet({ trip, onClose, onSave }: { trip?: Trip; onClose(): void; onSave: SaveFn<Trip> }) {
-  const [t, setT] = useState<Trip>(trip ?? { name: '', start: '', end: '', currencies: [], match: [] })
-  const [match, setMatch] = useState((trip?.match ?? []).join(', '))
-  const [rateBusy, setRateBusy] = useState<number>()
-  const [rateNote, setRateNote] = useState<string>()
-  const setCur = (i: number, c: Partial<Trip['currencies'][number]>) =>
-    setT({ ...t, currencies: t.currencies.map((x, j) => (j === i ? { ...x, ...c } : x)) })
-  const valid = t.name.trim() && t.start && t.end && t.start <= t.end
-  return (
-    <Sheet title={trip ? 'Edit trip' : 'New trip'} onClose={onClose}>
-      <form
-        className="stack"
-        onSubmit={(e) => {
-          e.preventDefault()
-          onSave(
-            clean({
-              ...t,
-              name: t.name.trim(),
-              currencies: t.currencies.map((c) => ({ ...c, code: c.code.trim().toUpperCase() })).filter((c) => c.code),
-              match: match.split(',').map((m) => m.trim()).filter(Boolean),
-            }),
-          )
-        }}
-      >
-        <Field label="Name">
-          <input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} placeholder="e.g. Japan Trip" autoFocus={!trip} />
-        </Field>
-        <div className="two">
-          <Field label="Start">
-            <input type="date" value={t.start} onChange={(e) => setT({ ...t, start: e.target.value })} />
-          </Field>
-          <Field label="End">
-            <input type="date" value={t.end} onChange={(e) => setT({ ...t, end: e.target.value })} />
-          </Field>
-        </div>
-        <h3>Currencies</h3>
-        <p className="muted small">Each gets its own spending block on the trip tab. None for a trip in RM only.</p>
-        {t.currencies.map((c, i) => (
-          <div key={i} className="table-row">
-            <Field label="Currency">
-              <input value={c.code} onChange={(e) => setCur(i, { code: e.target.value })} placeholder="e.g. JPY" list="currencies" />
-            </Field>
-            <Field label="RM per 1">
-              <input type="number" inputMode="decimal" step="any" value={c.rate ?? ''}
-                onChange={(e) => setCur(i, { rate: e.target.value ? Number(e.target.value) : undefined })} />
-            </Field>
-            <button type="button" className="btn small" disabled={!c.code.trim() || rateBusy === i}
-              onClick={async () => {
-                setRateBusy(i)
-                setRateNote(undefined)
-                try {
-                  const rate = await rateToRm(c.code)
-                  setCur(i, { rate: Number(rate.toPrecision(6)) })
-                  setRateNote(`Today's rate: RM ${rate.toPrecision(6)} per 1 ${currencyCode(c.code)}`)
-                } catch (e) {
-                  setRateNote(errorText(e))
-                } finally {
-                  setRateBusy(undefined)
-                }
-              }}>
-              {rateBusy === i ? 'Looking up…' : "Today's rate"}
-            </button>
-            <button type="button" className="icon-btn" aria-label={`Remove ${c.code || 'currency'}`}
-              onClick={() => setT({ ...t, currencies: t.currencies.filter((_, j) => j !== i) })}>
-              ✕
-            </button>
-          </div>
-        ))}
-        <datalist id="currencies">
-          {CURRENCIES.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        <div className="btn-row">
-          <button type="button" className="btn" onClick={() => setT({ ...t, currencies: [...t.currencies, { code: '' }] })}>
-            + Add currency
-          </button>
-          {rateNote && <span className="muted small">{rateNote}</span>}
-        </div>
-        <Field label="Earlier bookings containing" hint="Comma-separated, e.g. AIRASIA, AGODA">
-          <input value={match} onChange={(e) => setMatch(e.target.value)} />
-        </Field>
-        <Field label="Itinerary link">
-          <input type="url" value={t.link ?? ''} onChange={(e) => setT({ ...t, link: e.target.value })} />
-        </Field>
-        <SheetButtons isNew={!trip} onDelete={() => onSave(null)} onClose={onClose} canSave={!!valid} />
       </form>
     </Sheet>
   )

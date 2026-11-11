@@ -1,7 +1,6 @@
 """What to read from and write to a yearly "YYYY Accounts" spreadsheet, as
-plain data: no HTTP, no gspread. The CLI executes these plans with gspread
-(gsheets.py); the web app executes the same plans with fetch() against the
-Sheets API, so both write exactly the same thing.
+plain data: no HTTP. The web app executes these plans with fetch() against
+the Sheets API.
 
 A sync is two steps:
 
@@ -70,6 +69,7 @@ class Finished:
     to_update: int = 0  # cards still open
     fixed_in_sheet: int = 0  # cards closed because the user edited the month tab
     synced_keys: set[str] = field(default_factory=set)  # answers now in the sheet
+    min_rows: dict[str, int] = field(default_factory=dict)  # rows each tab must have before the writes
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -199,9 +199,12 @@ def finish(
     config: Config,
     answers: dict[str, dict] | None = None,
     to_update: bool = True,
+    moving: bool = False,
 ) -> Finished:
     """`to_update=False` when `tabs` are only a few rows placed by hand (add a
-    transaction, move one to a trip): the To Update tab is left as it is."""
+    transaction, move one to a trip): the To Update tab is left as it is.
+    `moving`: these rows are still on their old tab until this has worked, so
+    only the tab they're going to says whether they're already there."""
     answers = answers or {}
     months, trips = month_and_trip_tabs(prepared.order, year, config)
     filled = {rng: values.get(rng, []) for rng in prepared.reads}
@@ -228,6 +231,7 @@ def finish(
         data += set_cells(tab_q, kind, row, answer)
 
     added = already = 0
+    min_rows: dict[str, int] = {}
     for tab in tabs:
         q = quote(tab.title)
         sheet_id = sheet_ids[tab.title]
@@ -236,7 +240,8 @@ def finish(
             data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in layout.items()]
             formats += format_requests(sheet_id, tab, config)
 
-        fresh = [r for r in tab.rows if r.key not in keys]
+        have = set(locate({k: v for k, v in filled.items() if k.startswith(f"{q}!")})) if moving else keys
+        fresh = [r for r in tab.rows if r.key not in have]
         already += len(tab.rows) - len(fresh)
         added += len(fresh)
 
@@ -250,6 +255,7 @@ def finish(
                 continue
             existing = len(filled.get(rng, []))
             start = tab.first_row + existing
+            min_rows[tab.title] = max(min_rows.get(tab.title, 0), start + len(block) - 1)
             data.append({
                 "range": f"{q}!{c0}{start}:{c1}{start + len(block) - 1}",
                 "values": [[cell(v) for v in r.values()] for r in block],
@@ -280,7 +286,8 @@ def finish(
             "range": f"{quote(TO_UPDATE)}!A1:H{len(table)}",
             "values": [[cell(v) for v in row] for row in table],
         })
-        clear = [f"{quote(TO_UPDATE)}!A{len(table) + 1}:H{TAB_ROWS}"]
+        clear = [f"{quote(TO_UPDATE)}!A{len(table) + 1}:H"]
+        min_rows[TO_UPDATE] = len(table)
 
     # Removals bottom-up so the other row numbers stay right, then sorts.
     requests = formats + [
@@ -291,7 +298,7 @@ def finish(
     in_sheet = keys | {r.key for tab in tabs for r in tab.rows}
     synced = {k for k in answers if not k.startswith("_") and k in in_sheet}
     open_cards = 0 if table[1][0] == "Nothing to update." else len(table) - 1
-    return Finished(data, requests, clear, added, already, open_cards, len(resolved), synced)
+    return Finished(data, requests, clear, added, already, open_cards, len(resolved), synced, min_rows)
 
 
 # ---- single-row edits (cards and row edits from the app) ------------------------
@@ -658,167 +665,6 @@ def category_refresh(sheet_ids: dict[str, int], year: int, config: Config) -> di
     return {"clear": clear, "data": data, "requests": requests}
 
 
-# ---- tabs made before the Source column and the gap columns (Oct 2026) ----------
-#
-# Columns are inserted, not rewritten, so every row, your edits, and formulas
-# pointing at these tabs (Final, Trips, Year End Summary) move along with
-# them. Then Source is filled in and the old automatic Remarks ("To Jane
-# Tan", or the bank) become the statement text.
-
-# 0-based columns of the old layout to insert one column before, right to left
-# so earlier inserts don't shift later ones.
-OLD_MONTH_INSERTS = [18, 16, 7, 5]  # before S (gap), Q (Source), H (gap), F (Source)
-
-
-def header_ranges(year: int, titles: list[str], config: Config) -> list[str]:
-    """Each managed tab's header row, to tell old layouts from new."""
-    months, trips = month_and_trip_tabs(list(titles), year, config)
-    return [f"{quote(t)}!A2:H2" for t in months] + [f"{quote(t)}!A3:Z3" for t in trips]
-
-
-def trip_versions(headers: dict[str, list[list]]) -> dict[str, str]:
-    """Trip tabs in an older layout: {title: "v1" (before Oct 2026) or "v2"
-    (Source column, one currency)}. Current ones aren't listed."""
-    out = {}
-    for rng, rows in headers.items():
-        if not rng.endswith("!A3:Z3"):
-            continue
-        row = [str(v).strip() for v in (rows[0] if rows else [])] + [""] * 26
-        title = rng.rsplit("!", 1)[0][1:-1].replace("''", "'")
-        if row[15] == "Summary":
-            continue  # current layout
-        if row[5] == "Remarks" and row[6] == "Key":
-            out[title] = "v1"
-        elif row[6] == "Remarks" and row[7] == "Key":
-            out[title] = "v2"
-    return out
-
-
-def trip_rebuild(trip, version: str, rows: list[list], by_key: dict[str, AccountRow], config: Config,
-                 sheet_id: int) -> tuple[list[str], list[dict], list[dict]]:
-    """A trip tab in an older layout (rows A4 onwards, read with FORMULA)
-    rewritten in the current one: RM rows keep their keys, the currency
-    block goes to the first currency, money received to "received in other
-    currencies". Returns (clear, data, requests)."""
-    q = quote(trip.name)
-    if version == "v1":
-        rm_at, key_at, cash_at, received_at = 0, 6, 7, 16
-    else:
-        rm_at, key_at, cash_at, received_at = 0, 7, 9, 19
-    rm, cash, received = [], [], []
-    cur = trip.currency or ""
-    for r in rows:
-        r = list(r) + [""] * 30
-        if any(str(v).strip() for v in r[rm_at:key_at + 1]):
-            if version == "v1":
-                d, item, cat, amt, imp, remarks, key = r[0:7]
-                source = ""
-                known = by_key.get(str(key))
-                if known:
-                    source = known.source
-                    if str(remarks) in (known.who, known.source):
-                        remarks = known.remarks
-            else:
-                d, item, cat, amt, imp, source, remarks, key = r[0:8]
-            rm.append([d, item, cat, amt, imp, source, remarks, key])
-        if any(str(v).strip() for v in r[cash_at:cash_at + 6]):
-            cash.append(r[cash_at:cash_at + 6])
-        if any(str(v).strip() for v in r[received_at:received_at + 4]):
-            d, item, amt, remarks = r[received_at:received_at + 4]
-            received.append([d, item, cur, amt, remarks])
-    last = col_letter(max(trip_width(trip), 30) - 1)
-    clear = [f"{q}!A1:{last}{TAB_ROWS}"]
-    data = [{"range": f"{q}!{c}", "values": [[v]]} for c, v in trip_layout(trip, config, True).items()]
-    first = TRIP_FIRST_ROW
-    if rm:
-        data.append({"range": f"{q}!A{first}:{SPEND_KEY}{first + len(rm) - 1}", "values": rm})
-    if cash and trip.currencies():
-        c = currency_cols(0)
-        data.append({"range": f"{q}!{c[0]}{first}:{c[-1]}{first + len(cash) - 1}", "values": cash})
-    if received and trip.currencies():
-        rc = received_cols(len(trip.currencies()))
-        data.append({"range": f"{q}!{rc[0]}{first}:{rc[-1]}{first + len(received) - 1}", "values": received})
-    unhide = {"updateDimensionProperties": {
-        "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": col_index(last) + 1},
-        "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}}
-    widen = {"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {
-        "columnCount": max(trip_width(trip) + 2, 30)}}, "fields": "gridProperties.columnCount"}}
-    return clear, data, [widen, unhide, *format_requests(sheet_id, Tab(trip.name, "trip", (), trip=trip), config)]
-
-
-def old_tabs(headers: dict[str, list[list]]) -> list[str]:
-    """Month tabs whose header still has Remarks in F and the key in G."""
-    out = []
-    for rng, rows in headers.items():
-        if not rng.endswith("!A2:H2"):
-            continue
-        row = rows[0] if rows else []
-        if len(row) >= 7 and str(row[5]) == "Remarks" and str(row[6]) == "Key":
-            out.append(rng.rsplit("!", 1)[0][1:-1].replace("''", "'"))
-    return out
-
-
-def unfinished_tabs(headers: dict[str, list[list]]) -> list[str]:
-    """Month tabs with columns inserted but headers not rewritten yet (an upgrade cut short)."""
-    out = []
-    for rng, rows in headers.items():
-        if not rng.endswith("!A2:H2"):
-            continue
-        row = (rows[0] if rows else []) + [""] * 8
-        if not str(row[5]).strip() and str(row[6]) == "Remarks" and str(row[7]) == "Key":
-            out.append(rng.rsplit("!", 1)[0][1:-1].replace("''", "'"))
-    return out
-
-
-def insert_columns(sheet_ids: dict[str, int], titles: list[str]) -> list[dict]:
-    reqs = []
-    for t in titles:
-        if not parse_month_title(t):
-            continue  # trip tabs are rebuilt instead (trip_rebuild)
-        for c in OLD_MONTH_INSERTS:
-            reqs.append({
-                "insertDimension": {
-                    "range": {"sheetId": sheet_ids[t], "dimension": "COLUMNS", "startIndex": c, "endIndex": c + 1},
-                    "inheritFromBefore": False,
-                }
-            })
-    return reqs
-
-
-def upgrade_finish(sheet_ids: dict[str, int], titles: list[str], values: dict[str, list[list]], rows: list[AccountRow],
-                   config: Config) -> tuple[list[str], list[dict], list[dict]]:
-    """After insert_columns: the new headers, summaries and formats, plus
-    Source and Remarks for rows fincomp recorded. `values` are the data
-    ranges (data_ranges) read with FORMULA. Returns (ranges to clear first,
-    data, requests)."""
-    by_key = {r.key: r for r in rows}
-    clear: list[str] = []
-    data: list[dict] = []
-    requests: list[dict] = []
-    for t in titles:
-        q = quote(t)
-        if not parse_month_title(t):
-            continue
-        tab = Tab(t, "month", ())
-        layout = month_layout(config, True)
-        clear.append(f"{q}!{CAT_COLS[0]}3:{IMP_COLS[1]}40")  # old summaries, rewritten below
-        data += [{"range": f"{q}!{c}", "values": [[v]]} for c, v in layout.items()]
-        requests += format_requests(sheet_ids[t], tab, config)
-
-    for key, (tab_q, kind, row, vals) in locate(values).items():
-        if tab_q[1:-1].replace("''", "'") not in titles or key not in by_key:
-            continue
-        r = by_key[key]
-        source_i, remarks_i = (5, 6) if kind == "spend" else (3, 4)
-        fields = {}
-        if not _get(vals, source_i):
-            fields["source"] = r.source
-        if _get(vals, remarks_i) in (r.who, r.source):  # what fincomp wrote before, never your own note
-            fields["remarks"] = r.remarks
-        data += set_cells(tab_q, kind, row, fields)
-    return clear, data, requests
-
-
 def links_plan(year: int, titles: list[str], config: Config) -> list[dict]:
     """Every month's Trips and Final, and the Year End Summary, written again
     (after a trip tab moved its total)."""
@@ -853,6 +699,7 @@ def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int])
     else:
         fields = {"kind": "earn", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "amount": as_amount(_get(v, 2)),
                   "source": _get(v, 3), "remarks": _get(v, 4), "key": key}
+    fields["tab"] = tab_q[1:-1].replace("''", "'")
     ids = {quote(t): i for t, i in sheet_ids.items()}
     return fields, [remove_row_request(ids[tab_q], kind, row)]
 
@@ -878,7 +725,7 @@ def paid_row(values: list[list], tab_title: str, fields: dict) -> list[dict]:
 
 def trip_refresh(sheet_ids: dict[str, int], config: Config,
                  names: set[str] | None = None) -> tuple[list[dict], list[dict]]:
-    """After trips change in Settings: each existing trip tab's headings,
+    """After trips change: each existing trip tab's headings,
     summary (currency, rate) and formats. Rows are never touched. `names`:
     only these trips (the ones you changed)."""
     data: list[dict] = []

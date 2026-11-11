@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
 
 # Dropdown values from Account Template.xlsx.
 DEFAULT_CATEGORIES = [
@@ -11,17 +9,10 @@ DEFAULT_CATEGORIES = [
 ]
 DEFAULT_IMPORTANCE = ["Essential", "Have to Have", "Nice to Have", "Courtesy", "Regretted"]
 
-CONFIG_HOME = Path.home() / ".config" / "fincomp"
-
-
 @dataclass
 class GoogleConfig:
     # "{year}" is replaced, giving one spreadsheet per year like the old workbooks.
     spreadsheet: str = "{year} Accounts"
-    folder_id: str = ""  # Drive folder for new spreadsheets; blank = My Drive
-    credentials: Path = CONFIG_HOME / "credentials.json"  # OAuth client from Google Cloud
-    token: Path = CONFIG_HOME / "token.json"  # written after the first sign-in
-    upload: bool = False  # upload on every run without --upload
 
 
 @dataclass
@@ -78,10 +69,6 @@ class CustomSheet:
     category: str = ""
 
 
-def _date(v) -> date:
-    return v if isinstance(v, date) else date.fromisoformat(str(v))
-
-
 def _list(v) -> list[str]:
     """"CHF, EUR" or ["CHF", "EUR"] -> ["CHF", "EUR"]."""
     if v is None or v == "":
@@ -103,27 +90,11 @@ def _rates(v) -> list[float | None]:
     return out
 
 
-def _trip(raw: dict) -> Trip:
-    match = raw.get("match", [])
-    return Trip(
-        name=str(raw["name"]),
-        start=_date(raw["start"]),
-        end=_date(raw["end"]),
-        currency=_list(raw.get("currency"))[0] if _list(raw.get("currency")) else "",
-        rate=_rates(raw.get("rate"))[0] if _rates(raw.get("rate")) else None,
-        extra=list(zip(_list(raw.get("currency"))[1:], (_rates(raw.get("rate")) + [None] * 9)[1:])),
-        match=[match] if isinstance(match, str) else list(match),
-        link=str(raw.get("link", "")),
-        lead_days=int(raw.get("lead_days", 180)),
-    )
-
-
 @dataclass
 class Config:
     transfer_window_days: int = 3
     passwords: dict[str, str] = field(default_factory=dict)
     patterns: dict[str, list[str]] = field(default_factory=dict)
-    csv: list[dict] = field(default_factory=list)
     rules: list[dict] = field(default_factory=list)
     categories: list[str] = field(default_factory=lambda: list(DEFAULT_CATEGORIES))
     importance: list[str] = field(default_factory=lambda: list(DEFAULT_IMPORTANCE))
@@ -146,44 +117,6 @@ class Config:
     # Your own name(s), to find your column in a Splitwise export. The app
     # passes your Google account name.
     me: list[str] = field(default_factory=list)
-    # Your answers from the To Update cards, so each is asked only once.
-    # Outside the repo: it's personal data.
-    answers: Path = CONFIG_HOME / "answers.json"
 
     def password(self, parser_name: str) -> str:
         return self.passwords.get(parser_name, "") or ""
-
-
-def _google(raw: dict) -> GoogleConfig:
-    g = GoogleConfig()
-    for key in ("spreadsheet", "folder_id"):
-        if key in raw:
-            setattr(g, key, str(raw[key]))
-    for key in ("credentials", "token"):
-        if raw.get(key):
-            setattr(g, key, Path(raw[key]).expanduser())
-    g.upload = bool(raw.get("upload", False))
-    return g
-
-
-def load_config(path: Path | None) -> Config:
-    if path is None or not path.exists():
-        return Config()
-    with path.open("rb") as f:
-        raw = tomllib.load(f)
-    return Config(
-        transfer_window_days=int(raw.get("transfer_window_days", 3)),
-        passwords=dict(raw.get("passwords", {})),
-        patterns={k: list(v) for k, v in raw.get("patterns", {}).items()},
-        csv=list(raw.get("csv", [])),
-        rules=list(raw.get("rules", [])),
-        categories=list(raw.get("categories", DEFAULT_CATEGORIES)),
-        importance=list(raw.get("importance", DEFAULT_IMPORTANCE)),
-        google=_google(raw.get("google", {})),
-        trips=[_trip(t) for t in raw.get("trips", [])],
-        record_earnings=bool(raw.get("record_earnings", True)),
-        own_payees=list(raw.get("own_payees", ["AEON CREDIT SERVICE"])),
-        people={k.upper(): str(v) for k, v in raw.get("people", {}).items()},
-        me=[raw["me"]] if isinstance(raw.get("me"), str) else list(raw.get("me", [])),
-        answers=Path(raw["answers"]).expanduser() if raw.get("answers") else CONFIG_HOME / "answers.json",
-    )

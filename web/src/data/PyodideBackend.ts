@@ -42,7 +42,7 @@ import {
   type YearSummary,
   type VaultState,
 } from './Backend'
-import { Google, type SheetTab, type Values } from './google'
+import { Google, type Render, type SheetTab, type Values } from './google'
 import { py, warmUp } from './py/client'
 import * as vault from './vault'
 import { keepLocal, localBlob, type VaultBlob } from './vault'
@@ -66,30 +66,13 @@ const SETTINGS_RANGES: Record<string, string> = {
   Lists: "'Lists'!A1:B", Removed: "'Removed'!A1:D", Reviewed: "'Reviewed'!A1:D", Sheets: "'Sheets'!A1:E",
 }
 const SHEETS_HEADER = ['Name', 'Year', 'Counts as (earnings / spending / blank)', 'Tables (name / currency / column ; ...)', 'Category']
-// Which layout this device last checked each spreadsheet against (upgradeLayout).
-const LAYOUT_VERSION = 3
-const layoutKey = (id: string) => `fincomp.layout.${id}`
-function layoutChecked(id: string): boolean {
-  try {
-    return localStorage.getItem(layoutKey(id)) === String(LAYOUT_VERSION)
-  } catch {
-    return false
-  }
-}
-function markLayoutChecked(id: string): void {
-  try {
-    localStorage.setItem(layoutKey(id), String(LAYOUT_VERSION))
-  } catch {
-    /* storage blocked: checked again next visit */
-  }
-}
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
 interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; ok: boolean }
 interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number }
 interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[]; widths?: Record<string, number> }
-interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already: number; toUpdate: number }
+interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already?: number; toUpdate?: number; minRows?: Record<string, number> }
 interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; tab: string; key: string }
 interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item: string; category: string; amount: number; importance: string; source: string; remarks: string; key: string }
 interface Target { title: string; trip: boolean; year: number; currencies: string[] }
@@ -104,6 +87,8 @@ const isMonthTab = (t: string) => new RegExp(`^(${MONTHS.join('|')}) \\d{4}$`).t
 const s = (v: unknown) => (v === undefined || v === null ? '' : String(v).trim())
 /** Key for a row you typed in (statement rows get theirs from their contents). */
 const newKey = () => 'm-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+/** A date typed in Sheets itself reads as a serial number; the app writes it as text. */
+const isoDate = (v: unknown) => (typeof v === 'number' ? new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString().slice(0, 10) : s(v))
 
 export class PyodideBackend implements Backend {
   private g: Google
@@ -211,64 +196,7 @@ export class PyodideBackend implements Backend {
         this.rememberIds()
       }
     }
-    // Once per visit, before anything reads or writes rows.
-    this.upgraded ??= this.upgradeLayout(this.books).catch((e) => {
-      this.upgraded = undefined
-      throw e
-    })
-    await this.upgraded
     return this.books
-  }
-
-  private upgraded?: Promise<void>
-
-  /** Tabs made before the Source and gap columns get them (sheetplan.upgrade_finish): columns
-   * are inserted, so rows, your edits and formulas pointing at them move along. */
-  private async upgradeLayout(books: Book[]): Promise<void> {
-    let compiled = false
-    for (const b of books) {
-      // Checked on this device already: nothing to read. (Bump LAYOUT_VERSION when the layout changes.)
-      if (layoutChecked(b.id)) continue
-      await this.useSettings()
-      const { tabs, ids } = await this.ids(b.id)
-      const titles = tabs.map((t) => t.title)
-      const headers = await py<string[]>('upgrade_headers', [b.year, titles])
-      if (!headers.length) {
-        markLayoutChecked(b.id)
-        continue
-      }
-      const got = await this.g.read(b.id, headers, 'UNFORMATTED_VALUE')
-      const plan = await py<{ requests: object[]; finish: string[]; trips: Record<string, string> }>(
-        'upgrade_columns', [ids, Object.fromEntries(headers.map((r, i) => [r, got[i]]))])
-      if (!plan.finish.length && !Object.keys(plan.trips).length) {
-        markLayoutChecked(b.id)
-        continue
-      }
-      if (plan.requests.length) await this.g.batch(b.id, plan.requests)
-      if (!compiled) {
-        // Each row's bank and statement text, from the Ledger.
-        const st = await this.readSettings()
-        await py('recompile', [st.values, {}, st.ledger])
-        compiled = true
-      }
-      const reads = await py<string[]>('book_ranges', [b.year, titles])
-      const vals = await this.g.read(b.id, reads, 'FORMULA')
-      if (plan.finish.length) {
-        const fin = await py<Plan>('upgrade_finish', [ids, plan.finish, Object.fromEntries(reads.map((r, i) => [r, vals[i]]))])
-        await this.run(b.id, fin)
-      }
-      if (Object.keys(plan.trips).length) {
-        // Trip tabs in an older layout are rewritten in the current one (rows kept).
-        const tripReads = await py<string[]>('upgrade_trip_ranges', [plan.trips])
-        const tv = await this.g.read(b.id, tripReads, 'FORMULA')
-        const fin = await py<Plan>('upgrade_trips', [b.year, titles, ids, plan.trips,
-          Object.fromEntries(tripReads.map((r, i) => [r, tv[i]]))])
-        // Requests first: they widen the tab the clear and the new blocks need.
-        await this.run(b.id, { clear: [], data: [], requests: fin.requests })
-        await this.run(b.id, { ...fin, requests: [] })
-      }
-      markLayoutChecked(b.id)
-    }
   }
 
   private async run(bookId: string, plan: Plan): Promise<void> {
@@ -290,12 +218,12 @@ export class PyodideBackend implements Backend {
   }
 
   /** Every month and trip tab's rows in a book, to find a row by key wherever it is. */
-  private async bookValues(book: Book, only?: string): Promise<{ values: Record<string, Values>; ids: Record<string, number> }> {
+  private async bookValues(book: Book, only?: string, render: Render = 'FORMULA'): Promise<{ values: Record<string, Values>; ids: Record<string, number> }> {
     await this.useSettings()
     const { tabs, ids } = await this.ids(book.id)
     const titles = only && only in ids ? [only] : tabs.map((t) => t.title)
     const ranges = await py<string[]>('book_ranges', [book.year, titles])
-    const vals = await this.g.read(book.id, ranges, 'FORMULA')
+    const vals = await this.g.read(book.id, ranges, render)
     return { values: Object.fromEntries(ranges.map((r, i) => [r, vals[i]])), ids }
   }
 
@@ -555,7 +483,7 @@ export class PyodideBackend implements Backend {
   async tripDetail(name: string): Promise<TripDetail> {
     await this.useSettings()
     const trip = (await this.getSettings()).trips.find((t) => t.name === name)
-    if (!trip) throw new Error(`No trip called "${name}" in Settings › Trips.`)
+    if (!trip) throw new Error(`No trip called "${name}" in Trips.`)
     const b = await this.book(+trip.start.slice(0, 4))
     const has = b && (await this.g.tabs(b.id)).some((t) => t.title === name)
     const [values] = has ? await this.g.read(b!.id, [await py<string>('trip_range', [name])], 'UNFORMATTED_VALUE') : [[]]
@@ -577,8 +505,7 @@ export class PyodideBackend implements Backend {
     await this.ensureSettingsTab(id, 'Sheets', SHEETS_HEADER)
     const rows = await py<unknown[][]>('sheets_rows', [next])
     await this.g.write(id, [{ range: "'Sheets'!A1:E1", values: [SHEETS_HEADER] }], 'RAW') // older tabs: no Category yet
-    await this.g.clear(id, ["'Sheets'!A2:E"])
-    if (rows.length) await this.g.write(id, [{ range: "'Sheets'!A2", values: rows }], 'RAW')
+    await this.replaceRows(id, { Sheets: rows })
     await this.useSettings(true)
 
     // Its tab in that year's spreadsheet.
@@ -618,8 +545,7 @@ export class PyodideBackend implements Backend {
     if (!sheet) return
     const id = await this.settingsBook()
     const rows = await py<unknown[][]>('sheets_rows', [list.filter((s) => s.name !== name)])
-    await this.g.clear(id, ["'Sheets'!A2:E"])
-    if (rows.length) await this.g.write(id, [{ range: "'Sheets'!A2", values: rows }], 'RAW')
+    await this.replaceRows(id, { Sheets: rows })
     await this.useSettings(true)
     const book = await this.book(sheet.year)
     if (!book) return
@@ -662,7 +588,8 @@ export class PyodideBackend implements Backend {
       await this.saveSheet((await this.listSheets()).find((s) => s.name === name)!) // its tab went missing: make it again
       at = (await this.sheetBook(name))!
     }
-    const vals = await this.g.read(at.book.id, [at.ranges[table]], 'UNFORMATTED_VALUE')
+    // Asked again, not from the saved answer: it decides which row is free.
+    const vals = await this.g.read(at.book.id, [at.ranges[table]], 'UNFORMATTED_VALUE', true)
     await this.g.write(at.book.id, await py<Plan['data']>('custom_add', [name, table, vals[0], row]), 'USER_ENTERED')
   }
 
@@ -785,7 +712,7 @@ export class PyodideBackend implements Backend {
       const stepAt = (what: string) => tell(0.05 + 0.95 * (step++ / Math.max(1, steps)), `${file.name}: ${what}`)
       for (const t of titles) {
         stepAt(t)
-        added += await this.placeRowsCounted(out.years[t], out.months[t], t)
+        added += (await this.placeRows(out.years[t], out.months[t], t)).added
         total += out.months[t].length
       }
       const parts = titles.length ? [titles.length === 1 ? titles[0] : `${titles.length} months`] : []
@@ -802,7 +729,7 @@ export class PyodideBackend implements Backend {
             currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate ?? undefined })), match: [] })
           await this.saveSettings(st)
         }
-        added += await this.placeRowsCounted(trip.year, trip.rm, name)
+        added += (await this.placeRows(trip.year, trip.rm, name)).added
         total += trip.rm.length + trip.paid.length + trip.received.length +
           Object.values(trip.cash).reduce((n, rows) => n + rows.length, 0)
         const book = (await this.book(trip.year))!
@@ -893,16 +820,33 @@ export class PyodideBackend implements Backend {
     })
   }
 
+  /** Written first, then what's left below cleared, so a write that fails loses nothing. */
   private async writeLedger(settingsId: string, rows: Values): Promise<void> {
-    const { ids } = await this.ids(settingsId)
+    const ledger = (await this.g.tabs(settingsId)).find((t) => t.title === 'Ledger')!
     await this.g.batch(settingsId, [{
       updateSheetProperties: {
-        properties: { sheetId: ids['Ledger'], gridProperties: { rowCount: rows.length + 200, columnCount: 14 } },
+        properties: { sheetId: ledger.sheetId, gridProperties: { rowCount: Math.max(ledger.gridProperties?.rowCount ?? 0, rows.length + 200), columnCount: 14 } },
         fields: 'gridProperties.rowCount,gridProperties.columnCount',
       },
     }])
-    await this.g.clear(settingsId, [LEDGER_RANGE])
     await this.g.write(settingsId, [{ range: "'Ledger'!A1", values: rows }], 'RAW')
+    await this.g.clear(settingsId, [LEDGER_RANGE.replace('A1:', `A${rows.length + 1}:`)])
+  }
+
+  /** Everything under these Settings tabs' headers: written first, then what's left below cleared. */
+  private async replaceRows(id: string, tabs: Record<string, unknown[][]>): Promise<void> {
+    await this.grow(id, Object.fromEntries(Object.entries(tabs).map(([t, rows]) => [t, rows.length + 1])))
+    await this.g.write(id, Object.entries(tabs).filter(([, rows]) => rows.length).map(([t, rows]) => ({ range: `${quote(t)}!A2`, values: rows })), 'RAW')
+    await this.g.clear(id, Object.entries(tabs).map(([t, rows]) => SETTINGS_RANGES[t].replace('A1:', `A${rows.length + 2}:`)))
+  }
+
+  /** Tabs with too few rows for what's about to be written (and one spare, for clearing below it). */
+  private async grow(id: string, rows: Record<string, number>): Promise<void> {
+    const short = (await this.g.tabs(id)).filter((t) => (rows[t.title] ?? 0) >= (t.gridProperties?.rowCount ?? Infinity))
+    if (!short.length) return
+    await this.g.batch(id, short.map((t) => ({
+      updateSheetProperties: { properties: { sheetId: t.sheetId, gridProperties: { rowCount: rows[t.title] + 200 } }, fields: 'gridProperties.rowCount' },
+    })))
   }
 
   private async syncYear(year: number): Promise<void> {
@@ -910,20 +854,13 @@ export class PyodideBackend implements Backend {
       (ids, values) => py<Fin>('finish_year', [year, ids, values]))
   }
 
-  /** Put rows (or none: just make the tab) on a month or trip tab, without touching To Update. */
-  private async placeRows(year: number, rows: object[], target: string): Promise<Book> {
-    return (await this.placeRowsWith(year, rows, target)).book
-  }
-
-  private async placeRowsCounted(year: number, rows: object[], target: string): Promise<number> {
-    return (await this.placeRowsWith(year, rows, target)).added
-  }
-
-  private async placeRowsWith(year: number, rows: object[], target: string): Promise<{ book: Book; added: number }> {
+  /** Put rows (or none: just make the tab) on a month or trip tab, without touching To Update.
+   * `moving`: they're still on their old tab, and that doesn't count as already placed. */
+  private async placeRows(year: number, rows: object[], target: string, moving = false): Promise<{ book: Book; added: number }> {
     let added = 0
     const book = await this.syncBook(year, (titles, created) => py<Prep>('prepare_rows', [year, titles, rows, target, created]),
       async (ids, values) => {
-        const fin = await py<Fin & { added: number }>('finish_rows', [year, ids, values])
+        const fin = await py<Fin>('finish_rows', [year, ids, values, moving])
         added = fin.added
         return fin
       })
@@ -975,6 +912,7 @@ export class PyodideBackend implements Backend {
     const vals = await this.g.read(book.id, prep.reads, 'FORMULA')
     const values = Object.fromEntries(prep.reads.map((r, i) => [r, vals[i]]))
     const fin = await finish(Object.fromEntries(tabs.map((t) => [t.title, t.sheetId])), values)
+    await this.grow(book.id, fin.minRows ?? {})
     await this.run(book.id, fin)
     return book
   }
@@ -990,7 +928,7 @@ export class PyodideBackend implements Backend {
     }
     if (target.trip && (row.kind === 'earn' || row.currency)) {
       // Money in on a trip is "paid back to you"; spending in a foreign currency goes in its block.
-      const book = await this.placeRows(target.year, [], target.title) // make sure the trip tab exists
+      const { book } = await this.placeRows(target.year, [], target.title) // make sure the trip tab exists
       const [ranges, fn, args] = row.kind === 'earn'
         ? [await py<string[]>('paid_ranges', [target.title]), 'paid_row', [] as unknown[]]
         : [await py<string[]>('cash_ranges', [target.title, row.currency]), 'cash_row', [row.currency]]
@@ -1003,12 +941,23 @@ export class PyodideBackend implements Backend {
 
   async moveRow(key: string, trip: string | null): Promise<void> {
     for (const b of await this.yearBooks()) {
-      const { values, ids } = await this.bookValues(b)
-      const taken = await py<{ row: { date: string } | null; requests: object[] }>('take_row', [key, values, ids])
+      const { values, ids } = await this.bookValues(b, undefined, 'UNFORMATTED_VALUE')
+      const taken = await py<{ row: { kind: string; date: string; tab: string; amount: number } | null }>('take_row', [key, values, ids])
       if (!taken.row) continue
       const target = await py<Target>('place_target', [trip ?? '', taken.row.date])
-      await this.g.batch(b.id, taken.requests)
-      await this.placeRows(target.year, [taken.row], target.title)
+      if (target.title === taken.row.tab) return
+      if (target.trip && taken.row.kind === 'earn') throw new Error('Only spending can move to a trip.')
+      // Another year's spreadsheet: its old year would add it back on the next upload, so that's ruled out first.
+      if (target.year !== b.year && !key.startsWith('m-')) {
+        const removed = await py<unknown[]>('reviewed_row', [key, { date: taken.row.date, amount: taken.row.amount, statement: `Moved to ${target.year}` }])
+        await this.g.append(await this.settingsBook(), "'Removed'!A:D", [removed])
+      }
+      // Added first, so a failure leaves it in both places, never in neither. Then it's found
+      // again on its old tab: the add may have sorted rows and changed where it is.
+      await this.placeRows(target.year, [taken.row], target.title, true)
+      const old = await this.bookValues(b, taken.row.tab, 'UNFORMATTED_VALUE')
+      const { requests } = await py<{ requests: object[] }>('take_row', [key, old.values, old.ids])
+      if (requests.length) await this.g.batch(b.id, requests)
       this.rowsAt.delete(key)
       return
     }
@@ -1055,18 +1004,13 @@ export class PyodideBackend implements Backend {
     const id = await this.settingsBook()
     const [lists, trips] = await this.g.read(id, [SETTINGS_RANGES.Lists, SETTINGS_RANGES.Trips], 'UNFORMATTED_VALUE')
     const rows = await py<Values>('lists_rows', [names, { Lists: lists }])
-    await this.g.clear(id, ["'Lists'!A2:B"])
-    if (rows.length) await this.g.write(id, [{ range: "'Lists'!A2", values: rows }], 'RAW')
+    await this.replaceRows(id, { Lists: rows })
     this.cats = undefined
     // Every month tab's "By Category" block and the Category dropdowns.
     const settings = { Lists: [lists[0] ?? ['Categories', 'Importance'], ...rows], Trips: trips }
     for (const b of await this.yearBooks()) {
       const { ids } = await this.ids(b.id)
-      const plan = await py<{ clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }>(
-        'category_refresh', [b.year, ids, settings])
-      if (plan.clear.length) await this.g.clear(b.id, plan.clear)
-      if (plan.data.length) await this.g.write(b.id, plan.data, 'USER_ENTERED')
-      if (plan.requests.length) await this.g.batch(b.id, plan.requests)
+      await this.run(b.id, await py<Plan>('category_refresh', [b.year, ids, settings]))
     }
   }
 
@@ -1100,15 +1044,15 @@ export class PyodideBackend implements Backend {
       rules: body('Rules').map((r): Rule => ({
         match: s(r[0]), category: s(r[1]) as Category | '', importance: s(r[2]) as Importance | '',
         item: s(r[3]) || undefined, trip: s(r[4]) || undefined, skip: /^(true|yes|y|1)$/i.test(s(r[5])) || undefined,
-        source: s(r[6]) || undefined,
+        source: s(r[6]) || undefined, regex: s(r[7]) || undefined,
       })),
       people: body('People').map((r) => ({ statementName: s(r[0]), shownAs: s(r[1]) })),
       trips: body('Trips').map((r) => ({
-        name: s(r[0]), start: s(r[1]), end: s(r[2]),
+        name: s(r[0]), start: isoDate(r[1]), end: isoDate(r[2]),
         currencies: s(r[3]).split(',').map((c, i) => ({ code: c.trim(), rate: Number(s(r[4]).split(',')[i]) || undefined }))
           .filter((c) => c.code),
         match: s(r[5]).split('|').map((m) => m.trim()).filter(Boolean),
-        link: s(r[6]) || undefined,
+        link: s(r[6]) || undefined, leadDays: s(r[7]) === '' ? undefined : Number(s(r[7])),
       })),
       ownPayees: body('Own payees').map((r) => s(r[0])),
     }
@@ -1119,15 +1063,13 @@ export class PyodideBackend implements Backend {
   async saveSettings(st: Settings): Promise<void> {
     const id = await this.settingsBook()
     const tabs: Record<string, unknown[][]> = {
-      Rules: st.rules.map((r) => [r.match, r.category ?? '', r.importance ?? '', r.item ?? '', r.trip ?? '', r.skip ? 'TRUE' : '', r.source ?? '', '']),
+      Rules: st.rules.map((r) => [r.match, r.category ?? '', r.importance ?? '', r.item ?? '', r.trip ?? '', r.skip ? 'TRUE' : '', r.source ?? '', r.regex ?? '']),
       People: st.people.map((p) => [p.statementName, p.shownAs]),
       Trips: st.trips.map((t) => [t.name, t.start, t.end, t.currencies.map((c) => c.code).join(', '),
-        t.currencies.map((c) => c.rate ?? '').join(', '), t.match.join(' | '), t.link ?? '', 180]),
+        t.currencies.map((c) => c.rate ?? '').join(', '), t.match.join(' | '), t.link ?? '', t.leadDays ?? 180]),
       'Own payees': st.ownPayees.map((p) => [p]),
     }
-    // Headers stay; everything under them is replaced.
-    await this.g.clear(id, Object.keys(tabs).map((t) => SETTINGS_RANGES[t].replace('A1:', 'A2:')))
-    await this.g.write(id, Object.entries(tabs).filter(([, rows]) => rows.length).map(([t, rows]) => ({ range: `${quote(t)}!A2`, values: rows })), 'RAW')
+    await this.replaceRows(id, tabs)
 
     // Trips you changed or added: their tab picks up a new currency / rate, or is made now.
     // Untouched trips (most of them) cost nothing, so a save is a few calls, not one per trip.
@@ -1147,7 +1089,73 @@ export class PyodideBackend implements Backend {
         await this.run(book.id, { clear: [], ...plan })
       }
       for (const t of mine) if (!(t.name in ids)) await this.placeRows(year, [], t.name)
+      await this.writeLinks(year) // a trip's dates decide which month its total comes off
     }
+  }
+
+  private async writeLinks(year: number): Promise<void> {
+    const book = await this.book(year)
+    if (!book) return
+    const titles = (await this.g.tabs(book.id)).map((t) => t.title)
+    await this.g.write(book.id, await py<Plan['data']>('links', [year, titles]), 'USER_ENTERED')
+  }
+
+  async saveTrip(trip: Trip, previousName?: string): Promise<void> {
+    const st = await this.getSettings()
+    const old = st.trips.find((t) => t.name === previousName)
+    if (previousName && !old) throw new Error(`No trip called "${previousName}".`)
+    const year = +trip.start.slice(0, 4)
+    if (old && +old.start.slice(0, 4) !== year) throw new Error("A trip can't move to another year: add a new trip there.")
+    const renamed = old && old.name !== trip.name
+    if (!old || renamed) {
+      const names = [...st.trips.map((t) => t.name), ...(await this.listSheets()).map((x) => x.name)]
+      if (names.includes(trip.name)) throw new Error(`You already have a trip or sheet called "${trip.name}".`)
+    }
+    if (renamed) {
+      // The tab keeps its rows, and formulas pointing at it follow the new name.
+      const book = await this.book(year)
+      const tab = book && (await this.g.tabs(book.id)).find((t) => t.title === old.name)
+      if (tab) await this.g.batch(book.id, [{ updateSheetProperties: { properties: { sheetId: tab.sheetId, title: trip.name }, fields: 'title' } }])
+      st.rules = st.rules.map((r) => (r.trip === old.name ? { ...r, trip: trip.name } : r))
+    }
+    st.trips = old ? st.trips.map((t) => (t === old ? trip : t)) : [...st.trips, trip]
+    await this.saveSettings(st)
+  }
+
+  async deleteTrip(name: string): Promise<number> {
+    const st = await this.getSettings()
+    const trip = st.trips.find((t) => t.name === name)
+    if (!trip) return 0
+    await this.useSettings()
+    const year = +trip.start.slice(0, 4)
+    const book = await this.book(year)
+    const tab = book && (await this.g.tabs(book.id)).find((t) => t.title === name)
+    let left = 0
+    let blocks: string[] = []
+    if (tab) {
+      // RM rows go to their months first, so nothing is lost if a later step fails.
+      blocks = await py<string[]>('trip_leave_ranges', [name])
+      const values = await this.g.read(book.id, blocks, 'UNFORMATTED_VALUE')
+      const out = await py<{ rows: { date: string }[]; left: number }>('trip_leaving', [name, values])
+      left = out.left
+      const months = new Map<string, { year: number; rows: object[] }>()
+      for (const row of out.rows) {
+        const target = await py<Target>('place_target', ['', row.date])
+        if (!months.has(target.title)) months.set(target.title, { year: target.year, rows: [] })
+        months.get(target.title)!.rows.push(row)
+      }
+      for (const [title, m] of months) await this.placeRows(m.year, m.rows, title, true)
+    }
+    await this.saveSettings({
+      ...st, trips: st.trips.filter((t) => t !== trip),
+      rules: st.rules.map((r) => (r.trip === name ? { ...r, trip: undefined } : r)),
+    })
+    await this.writeLinks(year) // nothing points at the tab any more
+    if (tab) {
+      if (left) await this.g.clear(book.id, blocks.slice(0, 2))
+      else await this.g.batch(book.id, [{ deleteSheet: { sheetId: tab.sheetId } }])
+    }
+    return left
   }
 
   /** Trips as last read or saved, to tell which ones a save changes. */

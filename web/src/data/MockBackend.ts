@@ -18,6 +18,7 @@ import {
   type UploadFile,
   type UploadResult,
   type VaultState,
+  type Trip,
   type TripDetail,
   type TripTotal,
   type UploadProgress,
@@ -114,7 +115,7 @@ export class MockBackend implements Backend {
   async tripDetail(name: string): Promise<TripDetail> {
     await wait()
     const trip = this.s.settings.trips.find((t) => t.name === name)
-    if (!trip) throw new Error(`No trip called "${name}" in Settings › Trips.`)
+    if (!trip) throw new Error(`No trip called "${name}" in Trips.`)
     const rows = this.s.rows.filter((r) => r.trip === name && r.kind === 'spend')
     const total = sum(rows)
     return {
@@ -433,6 +434,28 @@ export class MockBackend implements Backend {
       })
     }
     return results
+  }
+
+  async saveTrip(trip: Trip, previousName?: string): Promise<void> {
+    await wait()
+    const s = this.s.settings
+    if (s.trips.some((t) => t.name === trip.name && t.name !== previousName)) throw new Error(`You already have a trip called "${trip.name}".`)
+    const i = s.trips.findIndex((t) => t.name === previousName)
+    if (i >= 0) s.trips[i] = clone(trip)
+    else s.trips.push(clone(trip))
+    if (previousName && previousName !== trip.name) {
+      for (const r of this.s.rows) if (r.trip === previousName) r.trip = trip.name
+      for (const r of s.rules) if (r.trip === previousName) r.trip = trip.name
+    }
+  }
+
+  async deleteTrip(name: string): Promise<number> {
+    await wait()
+    const s = this.s.settings
+    s.trips = s.trips.filter((t) => t.name !== name)
+    for (const r of this.s.rows) if (r.trip === name) r.trip = undefined
+    for (const r of s.rules) if (r.trip === name) r.trip = undefined
+    return 0
   }
 
   async getSettings(): Promise<Settings> {

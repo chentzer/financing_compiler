@@ -1,10 +1,9 @@
-"""The "fincomp Settings" spreadsheet in the user's Drive: what config.toml
-holds for the CLI, as tabs both the website and the phone app read and
-edit. Also the hidden Ledger tab (every parsed transaction, so statements
+"""The "fincomp Settings" spreadsheet in the user's Drive: tabs both the
+website and the phone app read and edit. Also the hidden Ledger tab (every parsed transaction, so statements
 uploaded one at a time are still deduped and paired across banks).
 
 PDF passwords are *not* here: they live in the Drive App Data folder
-(passwords.vault.json), encrypted with the user's PIN (vault.py).
+(passwords.vault.json), encrypted with the user's PIN (web/src/data/vault.ts).
 
 Pure functions: tab values in, Config out, and back. Write these tabs with
 valueInputOption RAW so text stays text (dates, "+60..." numbers, "=").
@@ -16,9 +15,10 @@ from datetime import date
 
 from .config import Config, CustomSheet, Trip, _list, _rates
 from .models import Transaction
+from .sheetplan import as_date
 
 SETTINGS_TITLE = "fincomp Settings"
-PASSWORDS_FILE = "passwords.vault.json"  # in the Drive App Data folder, encrypted (vault.py)
+PASSWORDS_FILE = "passwords.vault.json"  # in the Drive App Data folder, encrypted
 
 RULES = "Rules"
 PEOPLE = "People"
@@ -86,10 +86,12 @@ def config_from_tabs(values: dict[str, list[list]], passwords: dict[str, str] | 
 
     trips = []
     for r in _body(values, TRIPS):
-        if not (_s(r, 0) and _s(r, 1) and _s(r, 2)):
+        # A date typed in Sheets itself reads back as a serial number, not the text the app writes.
+        start, end = (as_date(r[i]) if _s(r, i) else None for i in (1, 2))
+        if not (_s(r, 0) and start and end):
             continue
         trips.append(Trip(
-            name=_s(r, 0), start=date.fromisoformat(_s(r, 1)), end=date.fromisoformat(_s(r, 2)),
+            name=_s(r, 0), start=start, end=end,
             currency=(_list(_s(r, 3)) or [""])[0], rate=(_rates(_s(r, 4)) or [None])[0],
             extra=list(zip(_list(_s(r, 3))[1:], (_rates(_s(r, 4)) + [None] * 9)[1:])),
             match=[m.strip() for m in _s(r, 5).split("|") if m.strip()], link=_s(r, 6),

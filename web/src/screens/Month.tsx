@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { errorText, useData, useLoad } from '../app/context'
 import { useStored } from '../app/store'
-import { dayMonth, monthName, newestFirst, rm, shortDate, signedRm } from '../app/format'
+import { dayMonth, monthName, newestFirst, rm, shortDate, signedRm, todayIso } from '../app/format'
 import { go, href } from '../app/router'
 import { CategoryPicker } from '../components/CategoryPicker'
 import { Chips, Empty, ErrorBox, Field, Loading, Sheet } from '../components/ui'
@@ -352,7 +352,7 @@ function AddRow({ year, month, onClose }: { year: number; month: number; onClose
   const inMonth = today.getFullYear() === year && today.getMonth() + 1 === month
   const firstDay = `${year}-${String(month).padStart(2, '0')}-01`
   const [f, setF] = useState<NewRow>({
-    kind: 'spend', date: inMonth ? today.toISOString().slice(0, 10) : firstDay, item: '', amount: 0,
+    kind: 'spend', date: inMonth ? todayIso() : firstDay, item: '', amount: 0,
     category: '', importance: '', source: '', remarks: '', trip: '',
   })
   const [amount, setAmount] = useState('')

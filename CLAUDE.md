@@ -1,14 +1,15 @@
 # financing_compiler (the app is called **FinMerge**)
 
 The app's name is FinMerge everywhere the user sees it (site title,
-header, Android app name). Code, the Python package/CLI (`fincomp`), the
+header, Android app name). Code, the Python package (`fincomp`), the
 Android package id `com.chentzer.fincomp`, and the Drive file names
 ("fincomp Settings", the fincomp folder) keep the old name on purpose:
 renaming those would lose the user's data or the Google sign-in setup.
 
 `fincomp` reads statements from several Malaysian banks and e-wallets and
-writes monthly accounts to the user's Google Sheets. It runs two ways from
-one Python package:
+writes monthly accounts to the user's Google Sheets. There are only two ways
+to use it, from one Python package (the command-line tool was deleted on
+purpose):
 
 - **Website + Android app** (`web/`): no server. The page runs `fincomp`
   in the browser with Pyodide, parses PDFs on the device, and calls the
@@ -17,8 +18,6 @@ one Python package:
   built and signed by `.github/workflows/android.yml` (APK on the
   `android` release). The signing key is in the gitignored `.signing/`:
   never commit it.
-- **CLI** (`python -m fincomp`) for development and the one-time
-  `--push-settings`.
 
 Started from a friend's TNG/Maybank scripts (a fork of
 Rexpert/TNG_Statement_in_CSV, MIT), rewritten as one tool with a parser per
@@ -30,9 +29,9 @@ source.
 
 ```
 python -m venv .venv
-.venv/Scripts/pip install -e ".[tng,google,dev]"
-.venv/Scripts/python -m fincomp            # reads statements/, writes output/
+.venv/Scripts/pip install -e ".[dev]"
 .venv/Scripts/python -m pytest
+cd web; npm install; npm run dev           # demo data at localhost:5173
 ```
 
 ## Layout
@@ -41,20 +40,18 @@ python -m venv .venv
 - `parsers/`: one module per source, bytes in (`parse_bytes`), registered
   in `parsers/__init__.py`. PDF parsers use only `pypdf` + `re`
   (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
-  positions. Only TNG v2 (camelot) and CSV (pandas) are CLI-only, and they
-  import those lazily. `splitwise.py` reads a Splitwise group export (stdlib
+  positions; the older TNG v2 layout is refused. `splitwise.py` reads a Splitwise group export (stdlib
   csv): what the user paid = spending, repayments to them = earnings,
   converted at the trip's rate; never paired as transfers.
 - `pipeline.py`: statements → parsed → dedupe → transfer pairing → account
-  rows → tabs. Used by both the CLI and the web app.
+  rows → tabs.
 - `combine.py`: dedupe overlapping statements, pair transfers between the
   user's own accounts.
 - `accounts.py`: the monthly accounts layout from the user's
   `Account Template.xlsx` (cell positions, SUMIF summaries, rules, row
   keys, To Update cards).
 - `sheetplan.py`: **pure** plans of what to read and write in a yearly
-  spreadsheet (no HTTP). `gsheets.py` runs them with gspread (CLI); the web
-  app runs them with fetch().
+  spreadsheet (no HTTP); the web app runs them with fetch().
 - `settings.py`: the "fincomp Settings" sheet (Rules, People, Trips, Own
   payees, Lists, Sheets, Removed, Reviewed, hidden Ledger) ↔ `Config`. Passwords are in the
   Drive App Data folder, never in a sheet.
@@ -79,10 +76,9 @@ python -m venv .venv
   (one trip tab's blocks) read back.
 - `webapi.py`: the JSON-in/JSON-out functions the web app calls through
   Pyodide.
-- `accounts_xlsx.py`, `export.py`, `review.py`, `cli.py`: CLI only.
 
-Keep `webapi.py`'s import tree free of pandas, numpy, camelot, openpyxl and
-gspread (Pyodide check: see README).
+Everything under `src/fincomp` ships to the browser: keep it free of pandas,
+numpy, camelot, openpyxl and gspread.
 
 ## Accounts layout rules
 
@@ -97,10 +93,8 @@ gspread (Pyodide check: see README).
   RM spent + each currency x its rate - paid back; then one spending block
   per currency from S (Trip.currency + Trip.extra, each with its rate), then
   money received in other currencies. Month X5 = trips ending that month,
-  Final (X6) subtracts it. Older trip tabs are rebuilt (trip_rebuild), rows
-  kept.
-- Older tabs are converted by inserting columns (sheetplan.upgrade_*), never
-  by rewriting rows. Rows the app adds by hand get "m-..." keys.
+  Final (X6) subtracts it. Trips are added and changed on the Trips screen,
+  not in Settings. Rows the app adds by hand get "m-..." keys.
 - Never reorder or write to tabs fincomp doesn't manage; insert new tabs
   before the next managed tab in date order.
 - Sheets sync is append-only except for the user's own answers and edits:
@@ -151,7 +145,7 @@ check it at 375px wide, in light and dark, and at 200% text size.
    an upload in progress).
 9. **First-launch tour** (`web/src/components/Tour.tsx`). Runs once per
    device after sign-in, spotlights the real control (`data-tour="..."`
-   on it) with one sentence per step, "3 of 13" progress and Next / Back
+   on it) with one sentence per step, "3 of N" progress and Next / Back
    / Skip; replay from Settings. When a tab or feature is added, moved or
    removed, update `STEPS` (and its `data-tour` markers) in the same
    change: a feature isn't done until the tour covers it. Check it at

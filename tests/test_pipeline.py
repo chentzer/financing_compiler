@@ -110,3 +110,24 @@ def test_earlier_uploads_pair_with_new_and_reupload_replaces(fake):
     # Uploading a.pdf again replaces its earlier copy instead of doubling it.
     again = pipeline.compile_statements([("a.pdf", b"a")], Config(), earlier=earlier + out.parsed)
     assert sorted(x.description for x in again.transactions) == ["JANE TAN", "JANE TAN", "Shop"]
+
+
+def test_reupload_replaces_only_the_same_statement():
+    sept = [t(2, -8.0, "Shop", "statement.pdf"), t(28, -9.0, "Cafe", "statement.pdf")]
+    other_bank = [t(10, -7.0, "Grab", "statement.pdf", source="Bank B")]
+    earlier = sept + other_bank
+    # The same statement again: its rows are replaced, Bank B's same-named one stays.
+    assert pipeline.keep_earlier(earlier, [t(2, -8.0, "Shop", "statement.pdf"), t(28, -9.0, "Cafe", "statement.pdf")]) \
+        == other_bank
+    # October's statement, also called statement.pdf: September's rows stay.
+    october = [Transaction(date=date(2026, 10, 3), source="Bank A", account="acc", description="Shop", amount=-5.0,
+                           file="statement.pdf")]
+    assert pipeline.keep_earlier(earlier, october) == earlier
+    # A file that couldn't be read (wrong password) replaces nothing.
+    assert pipeline.keep_earlier(earlier, []) == earlier
+
+
+def test_wrong_password_keeps_the_earlier_copy(fake):
+    earlier = [t(2, -8.0, "Shop", "b.pdf")]
+    out = pipeline.compile_statements([("b.pdf", b"locked")], Config(), earlier=earlier)
+    assert not out.files[0].ok and [x.description for x in out.transactions] == ["Shop"]

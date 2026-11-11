@@ -67,8 +67,8 @@ def test_rows_and_classification():
     assert txs[1].transfer and {t.account for t in txs} == {"Savings ...5566"}
 
 
-def test_into_accounts(tmp_path):
-    cfg = Config(answers=tmp_path / "a.json")
+def test_into_accounts():
+    cfg = Config()
     txs = parse_text(STATEMENT, own_payees=cfg.own_payees)
     assert [(r.kind, r.item, r.amount, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("earn", "Transfer", 200.00, "From Ah Kow"),  # reference only: edit in the sheet

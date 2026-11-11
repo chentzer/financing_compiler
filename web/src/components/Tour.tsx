@@ -44,12 +44,14 @@ const STEPS: Step[] = [
     text: 'Tap any transaction to change it, move it to a trip, or delete it.' },
   { route: { name: 'month' }, target: 'add-row', title: 'Add by hand',
     text: 'Add cash spending or anything a statement missed.' },
+  { route: { name: 'trips' }, target: 'add-trip', title: 'Trips',
+    text: 'Each trip has its own page and total. Add one here; open a trip to change its dates, currencies and rates.' },
   { route: { name: 'investments' }, target: 'tab-sheets', title: 'Sheets',
     text: 'Your investments, and sheets of your own like ang pao.' },
   { route: { name: 'home' }, target: 'search', title: 'Search',
     text: 'Find any transaction by name, category, note, bank or amount, across every year.' },
   { route: { name: 'home' }, target: 'settings', title: 'Settings',
-    text: 'Rules, categories, trips and passwords. You can replay this tour from here.' },
+    text: 'Rules, categories and passwords. You can replay this tour from here.' },
 ]
 
 const TOUR_KEY = 'fincomp.tour.v1'

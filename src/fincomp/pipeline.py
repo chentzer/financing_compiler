@@ -1,4 +1,4 @@
-"""Statements in, accounts out: the steps both the CLI and the web app run.
+"""Statements in, accounts out: the steps the web app runs.
 
 Works on bytes only (no files, no network), so it runs unchanged in the
 browser under Pyodide.
@@ -75,12 +75,27 @@ def compile_statements(
     uploaded `earlier`, so dedupe and transfer pairing see every bank."""
     new, results = parse_files(files, config)
     parsed = [replace(t) for t in new]
-    names = {name for name, _ in files}
-    # Re-uploading a statement replaces its earlier copy.
-    combined = [replace(t) for t in (earlier or []) if t.file not in names] + new
+    combined = [replace(t) for t in keep_earlier(earlier or [], new)] + new
     compiled = compile_transactions(combined, config, answers, match=match, files=results)
     compiled.parsed = parsed
     return compiled
+
+
+def keep_earlier(earlier: list[Transaction], new: list[Transaction]) -> list[Transaction]:
+    """The earlier uploads' rows a new upload doesn't replace. A statement
+    uploaded again replaces its earlier copy: same file name and bank, dated
+    within what the new file covers. A same-named statement from another
+    month or bank, or a file that couldn't be read, replaces nothing."""
+    spans: dict[tuple[str, str], tuple] = {}
+    for t in new:
+        lo, hi = spans.get((t.file, t.source), (t.date, t.date))
+        spans[(t.file, t.source)] = (min(lo, t.date), max(hi, t.date))
+
+    def replaced(t: Transaction) -> bool:
+        span = spans.get((t.file, t.source))
+        return span is not None and span[0] <= t.date <= span[1]
+
+    return [t for t in earlier if not replaced(t)]
 
 
 def compile_transactions(

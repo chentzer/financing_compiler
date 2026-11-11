@@ -49,9 +49,9 @@ def test_cr_rows_are_ignored():
     assert not any(t.amount > 0 for t in [r for r in txs if not r.internal])
 
 
-def test_charges_are_all_recorded(tmp_path):
+def test_charges_are_all_recorded():
     txs = parse_text(STATEMENT)
-    cfg = Config(answers=tmp_path / "a.json", rules=[{"match": "SHOPEE", "category": "Shopping"}])
+    cfg = Config(rules=[{"match": "SHOPEE", "category": "Shopping"}])
     assert [(r.item, r.category, r.who if r.counterparty else r.source) for r in build_rows(txs, cfg)] == [
         ("KEDAI KOPI SATU", "", "AEON Credit"),
         ("AIRASIA-AKRB-FLT-MYR", "", "AEON Credit"),

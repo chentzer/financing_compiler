@@ -15,7 +15,7 @@ export interface SheetTab {
   title: string
   sheetId: number
   index: number
-  gridProperties?: { columnCount?: number }
+  gridProperties?: { rowCount?: number; columnCount?: number }
 }
 export type Render = 'FORMULA' | 'UNFORMATTED_VALUE' | 'FORMATTED_VALUE'
 
@@ -196,16 +196,17 @@ export class Google {
   async tabs(id: string): Promise<SheetTab[]> {
     const tabs = await this.cached(id, 'tabs', async () => {
       const r = await this.call<{ sheets: { properties: SheetTab }[] }>(
-        `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index,gridProperties.columnCount)`,
+        `${SHEETS}/${id}?fields=sheets.properties(title,sheetId,index,gridProperties(rowCount,columnCount))`,
       )
       return r.sheets.map((s) => s.properties).sort((a, b) => a.index - b.index)
     })
     return tabs.map((t) => ({ ...t }))
   }
 
-  /** Values for each range, in the same order as `ranges`. */
-  async read(id: string, ranges: string[], render: Render): Promise<Values[]> {
+  /** Values for each range, in the same order as `ranges`. `fresh`: ask Google, not the saved answer. */
+  async read(id: string, ranges: string[], render: Render, fresh = false): Promise<Values[]> {
     if (!ranges.length) return []
+    if (fresh) this.changed(id)
     const qs = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join('&')
     const got = await this.cached(id, `${render} ${qs}`, async () => {
       const r = await this.call<{ valueRanges: { values?: Values }[] }>(
