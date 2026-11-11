@@ -52,6 +52,9 @@ def compile_upload(files: list[dict], settings: dict, passwords: dict, ledger: l
         "pairs": len(compiled.matches),
         "duplicates": compiled.duplicates,
         "toUpdate": sum(1 for r in compiled.rows if r.needs),
+        # Settings › Removed rows to append: Splitwise rows that are also on a statement.
+        "removed": compiled.removed,
+        "sameAsSplitwise": len(compiled.removed),
     }
 
 

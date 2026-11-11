@@ -26,7 +26,7 @@ from datetime import date, timedelta
 
 from .accounts import (
     CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, FINAL_CELL, FIRST_ROW, IMP_COLS, PAID_COLS, PAID_KEY, SPEND_COLS,
-    SPEND_KEY, SUMMARY_COLS, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TRIP_SUMMARY_COLS, TRIPS_CELL, YEAR_SUMMARY,
+    SPEND_KEY, SUMMARY_COLS, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TWIN, TRIP_SUMMARY_COLS, TRIPS_CELL, YEAR_SUMMARY,
     PAID_KEY, AccountRow, Tab, col_letter, col_number, currency_cols, month_layout, month_links, parse_month_title, quote,
     received_cols, tab_order, to_update_table, trip_layout, trip_width, year_summary_cells,
 )
@@ -344,6 +344,8 @@ def fixed_in_sheet(row: AccountRow, found: tuple | None) -> bool:
     _, kind, _, values = found
     item = str(values[1]) if len(values) > 1 else ""
     category = str(values[2]) if kind == "spend" and len(values) > 2 else ""
+    if "twin" in row.needs:
+        return False  # only the card's Same / Different settles it
     ok = True
     if "purpose" in row.needs:
         ok = ok and bool(item) and item != row.item
@@ -602,11 +604,14 @@ def cards_from_values(rows: list[list]) -> list[dict]:
     for i, r in enumerate(rows):
         if not r or str(r[0]).startswith("Nothing to update"):
             continue
-        needs = [n.strip() for n in _get(r, 5).split(",") if n.strip()]
+        text, _, twin = _get(r, 5).partition(TWIN)
+        needs = [n.strip() for n in text.split(",") if n.strip()]
+        twin_text, _, twin_key = twin.strip().rpartition(" #")
         cards.append({
             "row": 2 + i, "date": (d := as_date(r[0])) and d.isoformat(), "amount": as_amount(_get(r, 1)),
             "who": _get(r, 2), "statement": _get(r, 3), "recordedAs": _get(r, 4),
             "needsPurpose": "what it was for" in needs, "needsCategory": "Category" in needs,
+            "twin": twin_text if twin_key else "", "twinKey": twin_key,
             "tab": _tab_title(r[6] if len(r) > 6 else ""), "key": _get(r, 7),
         })
     return cards

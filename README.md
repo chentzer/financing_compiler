@@ -128,6 +128,15 @@ on the trip tab and repayments on the month tab. Remarks keep the original
 amount ("Lunch · JPY 4,000.00"), and Splitwise categories like Dining out
 fill Category. A later export of the same group only adds what's new.
 
+A Splitwise row that is also on a statement (a dinner you paid by card, a
+repayment that came in by DuitNow) is recorded once. Same direction, within
+4 days, and the same RM amount; for another currency, one card charge within
+3% of the converted amount. The row uploaded first stays and the other is
+added to Settings › Removed; uploaded together, the bank row stays and takes
+the Splitwise description and category. A closer call (up to 8% off, or two
+charges that close), or a pair already in your sheet, gets a To Update card
+on the Splitwise row: **Same** removes it, **Different** keeps both.
+
 AEON Bank notes: moves between your account and your Savings pot are
 internal. So are DuitNow transfers to or from your own name, which the
 parser reads from the statement. Those are your money moving to another bank

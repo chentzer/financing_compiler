@@ -89,6 +89,7 @@ class AccountRow:
     source: str = ""
     statement: str = ""  # the raw statement description, shown on the card
     counterparty: str = ""  # the person, as on the statement; "" for a shop
+    twin: str = ""  # Splitwise row that may be a bank row too: "<that row> #<its key>"
 
     def values(self) -> list:
         if self.kind == "spend":
@@ -211,7 +212,8 @@ def who_of(t: Transaction, people: dict[str, str]) -> str:
 
 
 def build_rows(
-    transactions: list[Transaction], config: Config, answers: dict[str, dict] | None = None
+    transactions: list[Transaction], config: Config, answers: dict[str, dict] | None = None,
+    twins: dict[str, str] | None = None,
 ) -> list[AccountRow]:
     """Rows for the accounts: everything that isn't excluded (rules 1-2).
     Rows the statement doesn't explain go in with what it does say, e.g.
@@ -229,6 +231,9 @@ def build_rows(
                 needs.append("purpose")
             if kind == "spend" and not category:
                 needs.append("category")
+        twin = (twins or {}).get(key, "")
+        if twin:
+            needs.append("twin")  # last: its text can hold commas
         rows.append(
             AccountRow(
                 kind=kind,
@@ -245,6 +250,7 @@ def build_rows(
                 source=t.source,
                 statement=t.description,
                 counterparty=t.counterparty,
+                twin=twin,
             )
         )
     return rows
@@ -255,6 +261,7 @@ def needs_update(rows: list[AccountRow]) -> list[AccountRow]:
 
 
 TO_UPDATE = "To Update"
+TWIN = "same as? "  # in the Needs column: a Splitwise row that may also be on a statement
 TO_UPDATE_HEADERS = ["Date", "Amount (RM)", "Who / where", "Statement", "Recorded as", "Needs", "Tab", "Key"]
 
 
@@ -269,7 +276,7 @@ def to_update_table(tabs: list["Tab"], resolved: set[str] = frozenset()) -> list
             if r.needs and r.key not in resolved:
                 table.append([
                     r.date, r.amount if r.kind == "earn" else -r.amount, r.who, r.statement,
-                    r.item, ", ".join(labels[n] for n in r.needs), tab.title, r.key,
+                    r.item, ", ".join(labels[n] if n in labels else f"{TWIN}{r.twin}" for n in r.needs), tab.title, r.key,
                 ])
     if len(table) == 1:
         table.append(["Nothing to update."] + [""] * (len(TO_UPDATE_HEADERS) - 1))

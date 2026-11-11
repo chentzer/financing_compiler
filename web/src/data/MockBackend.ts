@@ -352,6 +352,15 @@ export class MockBackend implements Backend {
     }
   }
 
+  async keepBoth(key: string, _twinKey: string, close: boolean): Promise<void> {
+    await wait()
+    const card = this.s.cards.get(key)
+    if (!card) return
+    if (close) this.s.cards.delete(key)
+    else card.twin = undefined
+    this.s.later = close ? this.s.later.filter((k) => k !== key) : this.s.later
+  }
+
   async keepAsIs(key: string): Promise<void> {
     await wait()
     this.s.cards.delete(key)
@@ -373,7 +382,7 @@ export class MockBackend implements Backend {
     await wait(100)
     const out: StatementMonths = {}
     for (const r of this.s.rows) {
-      if (!r.source || r.key.startsWith('m-')) continue
+      if (!r.source || r.source === 'Splitwise' || r.key.startsWith('m-')) continue
       const m = (out[r.source] ??= {})
       m[r.date.slice(0, 7)] = (m[r.date.slice(0, 7)] ?? 0) + 1
     }

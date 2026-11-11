@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from .accounts import AccountRow, Tab, build_rows, plan
-from .combine import TransferMatch, dedupe, match_transfers, sort_ledger
+from .accounts import AccountRow, Tab, _keyed, build_rows, plan
+from .combine import TransferMatch, _key, dedupe, match_splitwise, match_transfers, sort_ledger
 from .config import Config
 from .models import Transaction
 from .parsers import ParseError, PasswordNeeded, build_parsers, find_parser
+from .settings import removed_row
 
 
 @dataclass
@@ -40,6 +41,9 @@ class Compiled:
     # The new statements' transactions exactly as parsed (before pairing
     # marks some internal): what gets stored, so pairing can be redone.
     parsed: list[Transaction] = field(default_factory=list)
+    # Settings › Removed rows to append: Splitwise rows (or bank rows) found to be
+    # the same money as a row already recorded. Already in config.removed.
+    removed: list[list] = field(default_factory=list)
 
 
 def parse_files(files: list[tuple[str, bytes]], config: Config) -> tuple[list[Transaction], list[FileResult]]:
@@ -76,7 +80,9 @@ def compile_statements(
     new, results = parse_files(files, config)
     parsed = [replace(t) for t in new]
     combined = [replace(t) for t in keep_earlier(earlier or [], new)] + new
-    compiled = compile_transactions(combined, config, answers, match=match, files=results)
+    before = {_key(t) for t in earlier or []}
+    fresh = {_key(t) for t in new if _key(t) not in before}  # not in any earlier upload: not in the sheet yet
+    compiled = compile_transactions(combined, config, answers, match=match, files=results, fresh=fresh)
     compiled.parsed = parsed
     return compiled
 
@@ -104,9 +110,48 @@ def compile_transactions(
     answers: dict[str, dict] | None = None,
     match: bool = True,
     files: list[FileResult] | None = None,
+    fresh: set[tuple] | None = None,
 ) -> Compiled:
+    """`fresh`: dedupe keys of rows no earlier upload had (so not in the
+    sheet yet); None takes every row as new."""
     transactions, dupes = dedupe(transactions)
     matches = match_transfers(transactions, config.transfer_window_days) if match else []
     transactions = sort_ledger(transactions)
-    rows = build_rows(transactions, config, answers or {})
-    return Compiled(transactions, matches, rows, plan(rows, config), files or [], dupes)
+    removed, twins = settle_splitwise(transactions, config, fresh)
+    rows = build_rows(transactions, config, answers or {}, twins)
+    return Compiled(transactions, matches, rows, plan(rows, config), files or [], dupes, removed=removed)
+
+
+def settle_splitwise(
+    transactions: list[Transaction], config: Config, fresh: set[tuple] | None = None
+) -> tuple[list[list], dict[str, str]]:
+    """Splitwise rows that are the same money as a bank row are recorded once.
+
+    A sure match where one side is new: the new side is left out (added to
+    config.removed, and returned as Settings › Removed rows so it stays out);
+    both new: the Splitwise row goes, and the bank row takes its purpose and
+    category. Both already in the sheet, or only a maybe: the Splitwise row's
+    To Update card asks (returned as {key: "same as? ... #bank key"}), unless
+    you answered "Different" (Reviewed has "splitwise key~bank key")."""
+    keys = {id(t): k for k, t in _keyed(transactions)}
+    is_new = (lambda t: True) if fresh is None else (lambda t: _key(t) in fresh)
+    removed: list[list] = []
+    twins: dict[str, str] = {}
+    for m in match_splitwise(transactions):
+        s, b = m.splitwise, m.bank
+        sk, bk = keys[id(s)], keys[id(b)]
+        if sk in config.removed or bk in config.removed:
+            continue  # settled before, or you took one out yourself
+        if m.sure and (is_new(s) or is_new(b)):
+            lose, keep = (s, b) if is_new(s) else (b, s)
+            if lose is s and not keep.purpose:
+                keep.purpose = s.purpose
+            if lose is s and not keep.category:
+                keep.category = s.category
+            key = keys[id(lose)]
+            config.removed.add(key)
+            removed.append(removed_row(key, lose.date.isoformat(), lose.amount,
+                                       f"Same as {keep.source}: {keep.description}"[:120]))
+        elif f"{sk}~{bk}" not in config.reviewed:
+            twins[sk] = f"{b.date.isoformat()} {b.source} RM {abs(b.amount):,.2f} {b.description}"[:90] + f" #{bk}"
+    return removed, twins

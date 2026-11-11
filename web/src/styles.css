@@ -1498,3 +1498,20 @@ button.row:hover {
   border-color: var(--pos);
   color: var(--surface);
 }
+
+/* ---------- Splitwise row that may also be on a statement ---------- */
+.twin-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.twin-box p {
+  margin: 0;
+}
+.twin-box .mono {
+  overflow-wrap: anywhere;
+}

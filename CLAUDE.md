@@ -42,7 +42,11 @@ cd web; npm install; npm run dev           # demo data at localhost:5173
   (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
   positions; the older TNG v2 layout is refused. `splitwise.py` reads a Splitwise group export (stdlib
   csv): what the user paid = spending, repayments to them = earnings,
-  converted at the trip's rate; never paired as transfers.
+  converted at the trip's rate; never paired as transfers. A Splitwise row
+  that is also on a statement is recorded once (`combine.match_splitwise`,
+  `pipeline.settle_splitwise`): the side uploaded later goes to Settings ›
+  Removed; maybes and pairs already in the sheet get a "same as?" card
+  (Different = Reviewed row "splitwise key~bank key").
 - `pipeline.py`: statements → parsed → dedupe → transfer pairing → account
   rows → tabs.
 - `combine.py`: dedupe overlapping statements, pair transfers between the
@@ -187,3 +191,4 @@ rows, so a same-amount purchase can't take a transfer's partner.
 - Commits here use the GitHub noreply address
   (`109493984+chentzer@users.noreply.github.com`, set in this repo's git
   config), not the personal email: the repo is public.
+

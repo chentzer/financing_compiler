@@ -71,10 +71,10 @@ const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
 interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; ok: boolean }
-interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number }
+interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number; removed: Values; sameAsSplitwise: number }
 interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[]; widths?: Record<string, number> }
 interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already?: number; toUpdate?: number; minRows?: Record<string, number> }
-interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; tab: string; key: string }
+interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; twin: string; twinKey: string; tab: string; key: string }
 interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item: string; category: string; amount: number; importance: string; source: string; remarks: string; key: string }
 interface Target { title: string; trip: boolean; year: number; currencies: string[] }
 type Plan = { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }
@@ -408,6 +408,7 @@ export class PyodideBackend implements Backend {
           needs: [...(c.needsPurpose ? ['purpose' as const] : []), ...(c.needsCategory ? ['category' as const] : [])],
           statement: c.statement,
           counterparty: person ? c.statement.split(' - ')[0].replace(/^(From|To) /, '') : '',
+          twin: c.twinKey ? { text: c.twin, key: c.twinKey } : undefined,
         }
         this.cardsAt.set(c.key, { book: b, tab: c.tab, trip: !isMonthTab(c.tab), card })
         out.push(card)
@@ -630,15 +631,30 @@ export class PyodideBackend implements Backend {
   async keepAsIs(key: string): Promise<void> {
     const at = this.cardsAt.get(key)
     if (!at) throw new Error('That card was already closed. Reload to see what is left.')
+    // Remembered first, so a later upload doesn't open the card again.
+    await this.remember(key, at.card)
+    await this.removeCard(at.book, key)
+    writeLater(readLater().filter((k) => k !== key))
+  }
+
+  async keepBoth(key: string, twinKey: string, close: boolean): Promise<void> {
+    const at = this.cardsAt.get(key)
+    if (!at) throw new Error('That card was already closed. Reload to see what is left.')
+    await this.remember(`${key}~${twinKey}`, { ...at.card, statement: `Not the same as ${at.card.twin?.text ?? twinKey}` })
+    if (!close) return
+    await this.remember(key, at.card)
+    await this.removeCard(at.book, key)
+    writeLater(readLater().filter((k) => k !== key))
+  }
+
+  /** A Settings › Reviewed row: the card (or the question, for "key~twin") doesn't come back. */
+  private async remember(key: string, card: Card): Promise<void> {
     const id = await this.settingsBook()
     if (!(await this.g.tabs(id)).some((t) => t.title === 'Reviewed')) {
       await this.g.batch(id, [{ addSheet: { properties: { title: 'Reviewed', gridProperties: { rowCount: 500, columnCount: 4 } } } }])
       await this.g.write(id, [{ range: "'Reviewed'!A1", values: [['Key', 'Date', 'Amount (RM)', 'Statement']] }], 'RAW')
     }
-    // Remembered first, so a later upload doesn't open the card again.
-    await this.g.append(id, "'Reviewed'!A:D", [await py<unknown[]>('reviewed_row', [key, at.card])])
-    await this.removeCard(at.book, key)
-    writeLater(readLater().filter((k) => k !== key))
+    await this.g.append(id, "'Reviewed'!A:D", [await py<unknown[]>('reviewed_row', [key, card])])
   }
 
   async skipCard(key: string): Promise<void> {
@@ -806,6 +822,9 @@ export class PyodideBackend implements Backend {
         changed = true
       }
       if (changed && this.unlocked) await this.savePasswords(learned)
+      // Splitwise rows that are also on a statement: remembered before anything is written,
+      // so they stay out on every later upload.
+      if (out.removed.length) await this.g.append(settings.id, "'Removed'!A:D", out.removed)
       tell(0.3, 'Saving to your Ledger')
       await this.writeLedger(settings.id, out.ledger)
       for (const [i, year] of out.years.entries()) {
@@ -822,7 +841,7 @@ export class PyodideBackend implements Backend {
     }
 
     const tail = okFiles.length
-      ? ` ${out.pairs} transfer(s) between your accounts paired; ${out.toUpdate} transaction(s) to update.`
+      ? ` ${out.pairs} transfer(s) between your accounts paired;${out.sameAsSplitwise ? ` ${out.sameAsSplitwise} Splitwise row(s) already on a statement, recorded once;` : ''} ${out.toUpdate} transaction(s) to update.`
       : ''
     return out.files.map((f): UploadResult => {
       if (f.ok) return { file: f.name, status: 'ok', source: f.parser, rowsAdded: f.count, message: `${f.count} transactions read.${tail}` }

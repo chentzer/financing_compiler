@@ -89,6 +89,14 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   const tripList = [...(trips.data ?? [])].sort((a, b) => Number(onTrip(b)) - Number(onTrip(a)) || b.start.localeCompare(a.start))
   const [moving, setMoving] = useState(false)
   const [trip, setTrip] = useState('')
+  // A Splitwise row that may also be on a statement: answered first (Same / Different).
+  const [different, setDifferent] = useState(false)
+  const twinOpen = !!card.twin && !different
+  const twinOnly = !!card.twin && !needsPurpose && !needsCategory // nothing else to ask
+  /** "Different" answered here: remembered along with whatever closes the card. */
+  const keepTwin = async () => {
+    if (card.twin && different) await backend.keepBoth(card.key, card.twin.key, false)
+  }
 
   // Suggestions from your past rows and the shop name; they follow what you type.
   useEffect(() => {
@@ -107,8 +115,17 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   const direction = card.counterparty ? (isSpend ? 'to' : 'from') : 'at'
   const complete = (!needsPurpose || item.trim() !== '') && (!needsCategory || category !== '')
 
-  async function act(what: 'save' | 'later' | 'notmine' | 'skip' | 'trip') {
+  async function act(what: 'save' | 'later' | 'notmine' | 'skip' | 'trip' | 'same' | 'different') {
     setError(undefined)
+    if (what === 'same') {
+      onDone(`Removed: the ${card.twin?.text.replace(/^\S+ /, '').split(' RM ')[0] || 'bank'} row is kept`, () => backend.notMine(card.key))
+      return
+    }
+    if (what === 'different') {
+      if (needsPurpose || needsCategory) setDifferent(true)
+      else onDone('Kept both', () => backend.keepBoth(card.key, card.twin!.key, true))
+      return
+    }
     if (what === 'trip') {
       const to = trip || tripList[0]?.name
       if (!to) return
@@ -120,6 +137,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       }
       // Your answers so far go with it; the card is closed either way.
       onDone(`Moved to ${to}`, async () => {
+        await keepTwin()
         if (complete) await backend.saveCard(card.key, answer)
         else await backend.keepAsIs(card.key)
         await backend.moveRow(card.key, to)
@@ -145,9 +163,15 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         importance: isSpend ? importance : undefined,
         sameForEvery: same,
       }
-      onDone(same ? `Saved, and added a rule for ${who}` : 'Saved', () => backend.saveCard(card.key, answer))
+      onDone(same ? `Saved, and added a rule for ${who}` : 'Saved', async () => {
+        await keepTwin()
+        await backend.saveCard(card.key, answer)
+      })
     } else if (what === 'skip') {
-      onDone('Skipped: kept as recorded', () => backend.keepAsIs(card.key))
+      onDone('Skipped: kept as recorded', async () => {
+        await keepTwin()
+        await backend.keepAsIs(card.key)
+      })
     } else {
       onDone('Removed: not yours', () => backend.notMine(card.key))
     }
@@ -158,7 +182,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       className="card update-card"
       onSubmit={(e) => {
         e.preventDefault()
-        if (complete) act('save')
+        if (complete && !twinOpen) act('save')
       }}
     >
       <div className="uc-top">
@@ -180,6 +204,23 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         </dd>
       </dl>
 
+      {card.twin && twinOpen && (
+        <div className="twin-box" role="group" aria-labelledby={`twin-${card.key}`}>
+          <p id={`twin-${card.key}`}>
+            <strong>Also on a statement?</strong> This Splitwise row may be the same money as:
+          </p>
+          <p className="mono small">{card.twin.text.replace(/^\d{4}-\d{2}-\d{2}/, (d) => shortDate(d))}</p>
+          <div className="btn-row">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => act('same')}>
+              Same: remove this one
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={() => act('different')}>
+              Different
+            </button>
+          </div>
+        </div>
+      )}
+
       {needsPurpose && (
         <Field label="What was it for?">
           <input
@@ -196,19 +237,19 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
           <CategoryPicker value={category} onChange={setCategory} suggested={suggested} />
         </Field>
       )}
-      {isSpend && (
+      {isSpend && !twinOnly && (
         <Field label="Importance" hint="Optional">
           <Chips label="Importance" options={IMPORTANCE} value={importance} onChange={setImportance} />
         </Field>
       )}
 
-      <label className="toggle">
+      {!twinOnly && <label className="toggle">
         <input type="checkbox" checked={same} onChange={(e) => setSame(e.target.checked)} disabled={!complete} />
         <span className="switch" aria-hidden />
         <span>
           Same for every payment {direction} <strong>{who}</strong> from now on
         </span>
-      </label>
+      </label>}
 
       {moving && tripList.length > 0 && (
         <div className="btn-row">
@@ -228,26 +269,26 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       {error && <p className="error-text">{error}</p>}
 
       <div className="uc-actions" data-tour="card-actions">
-        {tripList.length > 0 && (
-          <button type="button" className="btn" disabled={busy} onClick={() => setMoving((m) => !m)}
+        {tripList.length > 0 && !twinOnly && (
+          <button type="button" className="btn" disabled={busy || twinOpen} onClick={() => setMoving((m) => !m)}
             title={isSpend ? "Put this spending on a trip's tab" : "Put this on a trip's tab as paid back to you"}>
             ✈ Trip
           </button>
         )}
-        <button type="button" className="btn ghost danger" disabled={busy} onClick={() => act('notmine')}>
+        {!twinOnly && <button type="button" className="btn ghost danger" disabled={busy} onClick={() => act('notmine')}>
           Not mine
-        </button>
-        <button type="button" className="btn" disabled={busy} onClick={() => act('skip')}
+        </button>}
+        {!twinOnly && <button type="button" className="btn" disabled={busy || twinOpen} onClick={() => act('skip')}
           title="Keep the row as recorded and don't ask again">
           Skip
-        </button>
+        </button>}
         <button type="button" className="btn" disabled={busy} onClick={() => act('later')}
           title="Come back to this card next time">
           Later
         </button>
-        <button className="btn primary" disabled={busy || !complete}>
+        {!twinOnly && <button className="btn primary" disabled={busy || !complete || twinOpen}>
           Save
-        </button>
+        </button>}
       </div>
     </form>
   )

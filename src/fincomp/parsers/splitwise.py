@@ -17,6 +17,9 @@ name in the app; `me = [...]` in config.toml).
 
 Splitwise's categories fill Category where they map to yours (Dining out ->
 Food, Taxi -> Transport ...); "General" is left for you.
+
+A row that is also on a bank statement (paid by card, repaid by DuitNow) is
+recorded once: see combine.match_splitwise and pipeline.settle_splitwise.
 """
 
 from __future__ import annotations

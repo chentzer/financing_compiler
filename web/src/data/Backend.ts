@@ -73,6 +73,8 @@ export interface Card extends Row {
   statement: string
   /** The person as on the statement; "" for a shop. Used for "Same for every…". */
   counterparty: string
+  /** A Splitwise row that may be the same money as this bank or wallet row (`key` is that row's). */
+  twin?: { text: string; key: string }
 }
 
 export interface CardAnswer {
@@ -331,6 +333,9 @@ export interface Backend {
   saveCard(key: string, answer: CardAnswer): Promise<void>
   /** "Skip": keep the row as recorded and never ask about it again. */
   keepAsIs(key: string): Promise<void>
+  /** A Splitwise card's "Different": it isn't the same money as `twinKey`, so that question never comes
+   * back. `close` also closes the card (nothing else left to answer). */
+  keepBoth(key: string, twinKey: string, close: boolean): Promise<void>
   /** "Later": leave it in To Update. */
   skipCard(key: string): Promise<void>
   /** "Not mine": remove the row from its block. */

@@ -22,6 +22,8 @@ interface Seed {
   needs?: Need[]
   statement?: string
   counterparty?: string
+  /** A Splitwise row that may be the bank row with this source and date. */
+  twinOf?: { source: string; date: string; text: string }
 }
 
 const SEEDS: Seed[] = [
@@ -58,6 +60,9 @@ const SEEDS: Seed[] = [
   { date: '2026-10-03', item: 'Grab Food', amount: 31.4, category: 'Food', importance: 'Nice to Have', source: 'GX', statement: 'GRAB*FOOD' },
   { date: '2026-10-05', item: 'QR payment', amount: 15.5, remarks: 'To Nasi Lemak Corner', source: 'TNG', needs: ['purpose', 'category'], statement: 'QR Payment NASI LEMAK CORNER' },
   { date: '2026-10-06', item: 'Lazada', amount: 112, category: '', source: 'AEON Credit', needs: ['category'], statement: 'LAZADA MY' },
+  { date: '2026-10-03', item: 'Sushi Mentai', amount: 186.4, category: 'Food', importance: 'Nice to Have', source: 'Maybank', statement: 'SUSHI MENTAI SUNWAY' },
+  { date: '2026-10-03', item: 'Sushi dinner', amount: 186.4, category: 'Food', source: 'Splitwise', needs: [], statement: 'Sushi dinner · MYR 186.40',
+    twinOf: { source: 'Maybank', date: '2026-10-03', text: '2026-10-03 Maybank RM 186.40 SUSHI MENTAI SUNWAY' } },
   { date: '2026-10-08', item: 'Parking', amount: 6, category: 'Transport', importance: 'Essential', source: 'TNG', statement: 'PARKING SUNWAY PYRAMID' },
   { date: '2026-10-09', kind: 'earn', item: 'Transfer', amount: 50, remarks: 'From Ahmad Rahman', source: 'GX', needs: ['purpose'], statement: 'DuitNow AHMAD RAHMAN', counterparty: 'AHMAD RAHMAN' },
   { date: '2026-10-10', item: 'Gym', amount: 99, category: 'Health', importance: 'Have to Have', source: 'Maybank', statement: 'ANYTIME FITNESS' },
@@ -80,6 +85,7 @@ function toRow(s: Seed): Row & Partial<Card> {
   }
   if (s.needs) {
     row.needs = s.needs
+    if (s.twinOf) row.twin = { text: s.twinOf.text, key: `${s.twinOf.source}|${s.twinOf.date}` } // resolved in initialState
     row.statement = s.statement ?? s.item
     row.counterparty = s.counterparty ?? ''
   }
@@ -102,9 +108,13 @@ export function initialState(): MockState {
   const cards = new Map<string, Card>()
   for (const s of SEEDS) {
     const r = toRow(s)
-    const { needs, statement, counterparty, ...row } = r
+    const { needs, statement, counterparty, twin, ...row } = r
     rows.push(row)
-    if (needs) cards.set(row.key, { ...row, needs, statement: statement!, counterparty: counterparty! })
+    if (twin) {
+      const [src, d] = twin.key.split('|')
+      twin.key = rows.find((x) => x.source === src && x.date === d && x !== row)?.key ?? ''
+    }
+    if (needs) cards.set(row.key, { ...row, needs, statement: statement!, counterparty: counterparty!, twin })
   }
   return {
     rows,
