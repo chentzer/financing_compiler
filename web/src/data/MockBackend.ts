@@ -15,6 +15,7 @@ import {
   type Row,
   type RowEdit,
   type Settings,
+  type StatementMonths,
   type UploadFile,
   type UploadResult,
   type VaultState,
@@ -366,6 +367,17 @@ export class MockBackend implements Backend {
     await wait()
     this.s.cards.delete(key)
     this.s.rows = this.s.rows.filter((r) => r.key !== key)
+  }
+
+  async statementMonths(): Promise<StatementMonths> {
+    await wait(100)
+    const out: StatementMonths = {}
+    for (const r of this.s.rows) {
+      if (!r.source || r.key.startsWith('m-')) continue
+      const m = (out[r.source] ??= {})
+      m[r.date.slice(0, 7)] = (m[r.date.slice(0, 7)] ?? 0) + 1
+    }
+    return out
   }
 
   async uploadStatements(files: UploadFile[], passwords: Passwords = {}, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]> {

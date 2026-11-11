@@ -33,6 +33,7 @@ import {
   type RowEdit,
   type Rule,
   type Settings,
+  type StatementMonths,
   type Trip,
   type TripDetail,
   type TripTotal,
@@ -667,6 +668,22 @@ export class PyodideBackend implements Backend {
   }
 
   // ---- upload ---------------------------------------------------------------------------
+
+  async statementMonths(): Promise<StatementMonths> {
+    const { ledger } = await this.readSettings()
+    const head = (ledger[0] ?? []).map(s)
+    const [d, src] = [head.indexOf('date'), head.indexOf('source')]
+    const out: StatementMonths = {}
+    if (d < 0 || src < 0) return out
+    for (const r of ledger.slice(1)) {
+      const month = s(r[d]).slice(0, 7)
+      const source = s(r[src])
+      if (!/^\d{4}-\d{2}$/.test(month) || !source || source === 'Splitwise') continue
+      const m = (out[source] ??= {})
+      m[month] = (m[month] ?? 0) + 1
+    }
+    return out
+  }
 
   async uploadStatements(all: UploadFile[], typed: Passwords = {}, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]> {
     // Accounts workbooks you kept by hand (.xlsx) are copied in as they are; the rest are statements.

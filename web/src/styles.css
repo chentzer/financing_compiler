@@ -1445,3 +1445,56 @@ button.row:hover {
 .search-box input {
   font-size: 1.05rem;
 }
+
+/* ---------- upload checklist ---------- */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.checklist .month-nav {
+  max-width: none;
+}
+.checklist .month-nav h3 {
+  flex: 1;
+  text-align: center;
+  font-size: 1rem;
+}
+.check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.check-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 2.75rem;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.check-name .small {
+  display: block;
+}
+.check-name {
+  flex: 1;
+  min-width: 0;
+}
+.check-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.check-list li.done .check-mark {
+  background: var(--pos);
+  border-color: var(--pos);
+  color: var(--surface);
+}

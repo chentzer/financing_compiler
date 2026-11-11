@@ -42,6 +42,8 @@ export const STATEMENT_SOURCES: { key: string; label: string }[] = [
 ]
 
 export type Kind = 'spend' | 'earn'
+/** source -> month ("2026-09") -> transactions read from its statements. */
+export type StatementMonths = Record<string, Record<string, number>>
 /** What a card still needs: "purpose" (Item is only "Transfer"/"QR payment") and/or "category". */
 export type Need = 'purpose' | 'category'
 
@@ -339,6 +341,9 @@ export interface Backend {
    * this upload (keyed by source); saved passwords are used automatically,
    * and a typed one is saved after it opens a PDF.
    */
+  /** How many transactions your statements gave, per source (as the Source column names it) and
+   * month ("2026-09"), for the Upload checklist. Splitwise and workbooks aren't statements: left out. */
+  statementMonths(): Promise<StatementMonths>
   uploadStatements(files: UploadFile[], passwords?: Passwords, onProgress?: (p: UploadProgress) => void): Promise<UploadResult[]>
   /** Keep a copy of each uploaded PDF in Drive › fincomp › statements (off: read, then discarded). */
   getKeepPdfCopies(): Promise<boolean>

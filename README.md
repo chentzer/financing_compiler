@@ -17,7 +17,8 @@ Maybank, Ryt, Touch 'n Go) into monthly accounts in your own Google Sheets.
 2. **Upload** statement PDFs. The `fincomp` Python package runs in your
    browser ([Pyodide](https://pyodide.org)). It reads the PDFs, drops money
    moving between your own accounts, pairs transfers across banks, and
-   applies your rules.
+   applies your rules. A checklist under it ticks off each of your banks
+   once that month's statement is in.
 3. The results go into **"2026 Accounts"** (one spreadsheet per year): month
    tabs, trip tabs, a **To Update** tab and a Year End Summary.
 4. The **To Update** cards come up one at a time: what each transaction was

@@ -28,6 +28,8 @@ const STEPS: Step[] = [
     text: 'Add bank and e-wallet statements (PDF), Splitwise exports or an old accounts workbook. On the app it keeps going if you switch apps.' },
   { route: { name: 'upload' }, target: 'upload-pick', title: 'Share to FinMerge',
     text: 'Or share a statement from your bank app or Files straight to FinMerge: it uploads by itself.' },
+  { route: { name: 'upload' }, target: 'upload-checklist', title: 'Statement checklist',
+    text: "Each of your banks gets a tick once that month's statement is uploaded. Use ‹ › to change the month." },
   { route: { name: 'cards' }, target: 'tab-cards', title: 'To Update',
     text: 'Transactions that still need a purpose or a category, one card at a time.' },
   { route: { name: 'cards' }, target: 'card-actions', title: 'Answer a card',

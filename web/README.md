@@ -73,6 +73,7 @@ never call Google or Pyodide directly. After a mutation a screen calls
 | `saveCard(key, answer)` | `set_cells`; `sameForEvery` adds a row to Settings › Rules (match = counterparty or statement) |
 | `skipCard(key)` | nothing to write; the card stays in To Update |
 | `notMine(key)` | `sheetplan.remove_row(key)` |
+| `statementMonths()` | Ledger (Settings › Ledger) counted per source and month, for the Upload checklist; Splitwise left out |
 | `uploadStatements(files, passwords)` | Pyodide `pipeline` on the bytes, saved passwords from Drive App Data merged with typed ones, save a typed one once it opens a PDF; return one `UploadResult` per file (`status: 'password'` + `passwordFor` + `wrongPassword` when it can't open) |
 | `getSettings()` / `saveSettings()` | the "fincomp Settings" sheet (Rules / People / Trips / Own payees tabs) |
 | `saveTrip()` / `deleteTrip()` | the Trips screen: a renamed trip renames its tab; a deleted trip's RM rows go back to their months |

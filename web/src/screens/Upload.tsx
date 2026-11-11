@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStored } from '../app/store'
 import { backgroundProgress, backgroundStart, backgroundStop, canRunInBackground } from '../app/background'
 import { errorText, useData, useLoad } from '../app/context'
+import { monthName } from '../app/format'
 import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
 import { STATEMENT_SOURCES, type UploadFile, type UploadProgress, type UploadResult } from '../data/Backend'
@@ -95,6 +96,7 @@ function UploadInner() {
 
   return (
     <div className="stack">
+      <Checklist />
       <div
         className={`card${dragging ? ' drop-target' : ''}`}
         data-tour="upload-pick"
@@ -287,5 +289,66 @@ function PasswordPrompt({
         Open
       </button>
     </form>
+  )
+}
+
+/** "2026-09" moved by `by` months. */
+function addMonths(ym: string, by: number): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 1 + by, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Which of your banks' statements are in for a month: ticked once the month has rows from that
+ * bank. Your banks are the ones with statements within six months of it. Defaults to last month
+ * (statements come out after the month ends). */
+function Checklist() {
+  const load = useLoad((b) => b.statementMonths())
+  const [month, setMonth] = useStored('upload.checkMonth', addMonths(new Date().toISOString().slice(0, 7), -1))
+  const [y, m] = month.split('-').map(Number)
+  const near = new Set(Array.from({ length: 13 }, (_, i) => addMonths(month, i - 6)))
+  const banks = Object.entries(load.data ?? {})
+    .filter(([, months]) => Object.keys(months).some((x) => near.has(x)))
+    .map(([source, months]) => ({ source, rows: months[month] ?? 0 }))
+    .sort((a, b) => a.source.localeCompare(b.source))
+  const done = banks.filter((b) => b.rows > 0).length
+  return (
+    <section className="card checklist" aria-labelledby="checklist-title">
+      <div className="month-nav" data-tour="upload-checklist">
+        <button type="button" className="icon-btn" onClick={() => setMonth(addMonths(month, -1))} aria-label="Previous month">
+          ‹
+        </button>
+        <h3 id="checklist-title">{monthName(y, m)} statements</h3>
+        <button type="button" className="icon-btn" onClick={() => setMonth(addMonths(month, 1))} aria-label="Next month">
+          ›
+        </button>
+      </div>
+      {load.error ? (
+        <p className="small">Couldn't read your uploads: {load.error}</p>
+      ) : !load.data ? (
+        <p className="muted small">Checking your uploads…</p>
+      ) : !banks.length ? (
+        <p className="muted small">Your banks show up here once you've uploaded a statement from around this month.</p>
+      ) : (
+        <>
+          <p className="muted small">
+            {done === banks.length ? 'All in.' : `${done} of ${banks.length} uploaded.`}
+          </p>
+          <ul className="check-list">
+            {banks.map((b) => (
+              <li key={b.source} className={b.rows ? 'done' : ''}>
+                <span className="check-mark" aria-hidden>
+                  {b.rows ? '✓' : ''}
+                </span>
+                <span className="check-name">
+                  {b.source}
+                  <span className="muted small">{b.rows ? `${b.rows} ${b.rows === 1 ? 'transaction' : 'transactions'}` : 'Not uploaded yet'}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   )
 }
