@@ -477,7 +477,7 @@ export class PyodideBackend implements Backend {
       const got = await this.g.read(b.id, here.map((t) => `${quote(t.trip.name)}!${cells.tripTotal}`), 'UNFORMATTED_VALUE')
       here.forEach((t, i) => (t.total = Number(got[i]?.[0]?.[0] ?? 0)))
     }))
-    return out.sort((a, b) => b.trip.start.localeCompare(a.trip.start))
+    return out.sort((a, b) => b.trip.start.localeCompare(a.trip.start) || b.trip.end.localeCompare(a.trip.end))
   }
 
   async tripDetail(name: string): Promise<TripDetail> {

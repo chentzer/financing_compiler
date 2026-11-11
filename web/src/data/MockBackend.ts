@@ -109,7 +109,7 @@ export class MockBackend implements Backend {
         const rows = this.s.rows.filter((r) => r.trip === trip.name)
         return { trip: clone(trip), year: +trip.start.slice(0, 4), total: rows.length ? sum(rows) : null }
       })
-      .sort((a, b) => b.trip.start.localeCompare(a.trip.start))
+      .sort((a, b) => b.trip.start.localeCompare(a.trip.start) || b.trip.end.localeCompare(a.trip.end))
   }
 
   async tripDetail(name: string): Promise<TripDetail> {

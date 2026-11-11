@@ -16,7 +16,7 @@ function TripList() {
   const [adding, setAdding] = useState(false)
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
-  const years = [...new Set(load.data.map((t) => t.year))]
+  const trips = load.data // latest trip dates first
   return (
     <div className="stack">
       <div className="btn-row">
@@ -30,11 +30,10 @@ function TripList() {
           <p className="muted small">A trip's spending moves to its own tab, and its total comes off the month it ends.</p>
         </div>
       )}
-      {years.map((y) => (
-        <section key={y} className="card flush">
-          <h3 className="list-title">{y}</h3>
+      {trips.length > 0 && (
+        <section className="card flush">
           <ul className="rows">
-            {load.data!.filter((t) => t.year === y).map(({ trip, total }) => (
+            {trips.map(({ trip, total }) => (
               <li key={trip.name}>
                 <a className="row" href={href({ name: 'trips', trip: trip.name })}>
                   <span className="row-main">
@@ -52,7 +51,7 @@ function TripList() {
             ))}
           </ul>
         </section>
-      ))}
+      )}
       {adding && <TripSheet taken={load.data.map((t) => t.trip.name)} onClose={() => setAdding(false)} />}
     </div>
   )

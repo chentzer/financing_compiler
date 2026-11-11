@@ -348,6 +348,7 @@ export interface Backend {
   listYears(): Promise<number[]>
   yearSummary(year: number): Promise<YearSummary>
   /** Every trip with its total. */
+  /** Latest trip dates first. */
   listTrips(): Promise<TripTotal[]>
   tripDetail(name: string): Promise<TripDetail>
   /** Add a trip, or change the one called `previousName` (a new name renames its tab). Its year can't change. */
