@@ -78,8 +78,18 @@ def test_found_by_content_and_your_name():
         find_me(["Bob Lim"], ["Jane Tan"])
 
 
-def test_needs_the_trip_rate():
-    with pytest.raises(ParseError, match="in Trips first"):
-        parse(Config(me=["Jane Tan"]))
-    with pytest.raises(ParseError, match="rate"):
-        parse(Config(me=["Jane Tan"], trips=[Trip("Japan Trip", date(2026, 8, 10), date(2026, 8, 20), currency="JPY")]))
+def test_rows_without_a_rate_wait_the_rest_is_read():
+    from fincomp.pipeline import parse_files
+
+    mixed = CSV.replace(b"2026-08-13,Gift shop", b"2026-08-13,Bus,General,12.00,MYR,0.00,0.00,0.00,0.00\n2026-08-13,Gift shop")
+    p = SplitwiseParser(Config(me=["Jane Tan"]))
+    assert [t.purpose for t in p.parse_bytes("j.csv", mixed)] == ["Bus"]  # only the RM row
+    assert p.missing == {("", "JPY"): 4}  # no trip in yen yet
+
+    no_rate = Trip("Japan Trip", date(2026, 8, 10), date(2026, 8, 20), currency="JPY")
+    _, [res] = parse_files([("j.csv", mixed)], Config(me=["Jane Tan"], trips=[no_rate]))
+    assert res.ok and res.count == 1 and res.needs_rate == [{"trip": "Japan Trip", "currency": "JPY", "rows": 4}]
+
+    # With the rate set, the same file gives every row and nothing waits.
+    _, [res] = parse_files([("j.csv", mixed)], Config(me=["Jane Tan"], trips=[JAPAN]))
+    assert res.count == 5 and res.needs_rate == []

@@ -12,7 +12,9 @@ A member's balance on a row is what they paid minus their share, so for you:
 
 Amounts are in the group's currency and converted to RM at the rate of the
 trip in that currency (Settings > Trips), nearest by date. Rows in RM need
-no rate. Which column is you: the one matching `config.me` (your Google
+no rate. Rows whose trip has no rate yet (or no trip in that currency) are
+left out and counted in `missing`: the upload goes ahead, the app asks for
+the rate, and uploading the file again adds them. Which column is you: the one matching `config.me` (your Google
 name in the app; `me = [...]` in config.toml).
 
 Splitwise's categories fill Category where they map to yours (Dining out ->
@@ -95,18 +97,19 @@ class SplitwiseParser(Parser):
     def sniff(self, name: str, data: bytes, password: str = "") -> bool:
         return data[:200].decode("utf-8-sig", "ignore").lstrip().startswith(",".join(HEADER))
 
-    def rate(self, currency: str, when: date) -> float:
+    def rate(self, currency: str, when: date) -> float | None:
+        """RM per 1 unit; None (and counted in self.missing as (trip, code)) when
+        the nearest trip in that currency has no rate, or there's no such trip."""
         code = currency_code(currency)
         if code == "MYR":
             return 1.0
         found = [(t, r) for t in self.config.trips for c, r in t.currencies() if currency_code(c) == code]
-        if not found:
-            raise ParseError(f"Add the trip in {code} (with its rate) in Trips first.")
         trip, rate = min(found, key=lambda tr: 0 if tr[0].start <= when <= tr[0].end else min(
-            abs((when - tr[0].start).days), abs((when - tr[0].end).days)))
+            abs((when - tr[0].start).days), abs((when - tr[0].end).days))) if found else (None, None)
         if not rate:
-            raise ParseError(f"Set the RM rate for {code} on \"{trip.name}\" in Trips first.")
-        return rate
+            key = (trip.name if trip else "", code)
+            self.missing[key] = self.missing.get(key, 0) + 1
+        return rate or None
 
     def parse_bytes(self, name: str, data: bytes, password: str = "") -> list[Transaction]:
         rows = list(csv.reader(io.StringIO(data.decode("utf-8-sig"))))
@@ -116,6 +119,7 @@ class SplitwiseParser(Parser):
         me = find_me(members, self.config.me)
         group = re.sub(r"_\d{4}-\d{2}-\d{2}_export$", "", name.rsplit(".", 1)[0])  # same for every export
 
+        self.missing: dict[tuple[str, str], int] = {}  # (trip, currency) -> rows left out
         out = []
         for r in rows[1:]:
             if len(r) < 5 + len(members) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r[0].strip()):
@@ -140,7 +144,10 @@ class SplitwiseParser(Parser):
                     continue  # someone else paid
                 other, received, amount, purpose = "", False, cost, desc
 
-            rm = round(amount * self.rate(cur, when), 2)
+            rate = self.rate(cur, when)
+            if rate is None:
+                continue  # no rate yet: added when the file is uploaded again
+            rm = round(amount * rate, 2)
             out.append(Transaction(
                 date=when, source=SOURCE, account=group,
                 description=f"{desc} · {currency_code(cur)} {amount:,.2f}",

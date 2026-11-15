@@ -24,6 +24,9 @@ class FileResult:
     count: int = 0
     error: str = ""
     needs_password: str = ""  # parser name, when the PDF is locked
+    # Splitwise rows left out for a missing trip rate: [{"trip", "currency", "rows"}]
+    # ("trip" "" = no trip in that currency). The rest of the file is read.
+    needs_rate: list[dict] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -63,7 +66,9 @@ def parse_files(files: list[tuple[str, bytes]], config: Config) -> tuple[list[Tr
         except ParseError as e:
             results.append(FileResult(name, parser.label, parser.name, error=str(e)))
             continue
-        results.append(FileResult(name, parser.label, parser.name, count=len(found)))
+        missing = getattr(parser, "missing", {})
+        results.append(FileResult(name, parser.label, parser.name, count=len(found), needs_rate=[
+            {"trip": trip, "currency": code, "rows": n} for (trip, code), n in missing.items()]))
         transactions.extend(found)
     return transactions, results
 

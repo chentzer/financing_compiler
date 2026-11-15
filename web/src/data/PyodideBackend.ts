@@ -39,6 +39,7 @@ import {
   type TripTotal,
   type UploadFile,
   type UploadProgress,
+  type RateNeeded,
   type UploadResult,
   type YearSummary,
   type VaultState,
@@ -70,7 +71,7 @@ const SHEETS_HEADER = ['Name', 'Year', 'Counts as (earnings / spending / blank)'
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
-interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; ok: boolean }
+interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; needs_rate: RateNeeded[]; ok: boolean }
 interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number; removed: Values; sameAsSplitwise: number }
 interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[]; widths?: Record<string, number> }
 interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already?: number; toUpdate?: number; minRows?: Record<string, number> }
@@ -844,7 +845,10 @@ export class PyodideBackend implements Backend {
       ? ` ${out.pairs} transfer(s) between your accounts paired;${out.sameAsSplitwise ? ` ${out.sameAsSplitwise} Splitwise row(s) already on a statement, recorded once;` : ''} ${out.toUpdate} transaction(s) to update.`
       : ''
     return out.files.map((f): UploadResult => {
-      if (f.ok) return { file: f.name, status: 'ok', source: f.parser, rowsAdded: f.count, message: `${f.count} transactions read.${tail}` }
+      if (f.ok) {
+        const waiting = f.needs_rate.map((n) => ` ${n.rows} ${n.currency} row(s) wait for ${n.trip ? `the ${n.currency} rate on "${n.trip}"` : `a trip in ${n.currency}`}: upload this file again once it's set.`).join('')
+        return { file: f.name, status: 'ok', source: f.parser, rowsAdded: f.count, needsRate: f.needs_rate, message: `${f.count} transactions read.${tail}${waiting}` }
+      }
       if (f.needs_password) {
         const tried = !!passwords[f.needs_password]
         return {

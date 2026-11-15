@@ -142,6 +142,16 @@ export interface UploadResult {
   passwordFor?: string
   /** status "password": true when a password was tried and didn't open the PDF. */
   wrongPassword?: boolean
+  /** Splitwise rows left out until their trip has an RM rate (the rest of the file is in).
+   * trip "" = no trip in that currency yet. Uploading the file again adds them. */
+  needsRate?: RateNeeded[]
+}
+
+export interface RateNeeded {
+  trip: string
+  /** e.g. "VND". */
+  currency: string
+  rows: number
 }
 
 export interface Rule {

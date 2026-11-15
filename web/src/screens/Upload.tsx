@@ -5,7 +5,9 @@ import { errorText, useData, useLoad } from '../app/context'
 import { monthName } from '../app/format'
 import { href } from '../app/router'
 import { PinGate } from '../components/PinGate'
-import { STATEMENT_SOURCES, type UploadFile, type UploadProgress, type UploadResult } from '../data/Backend'
+import { Field } from '../components/ui'
+import { STATEMENT_SOURCES, type RateNeeded, type UploadFile, type UploadProgress, type UploadResult } from '../data/Backend'
+import { rateToRm } from '../data/fx'
 
 const sourceLabel = (key?: string) => STATEMENT_SOURCES.find((s) => s.key === key)?.label ?? ({ splitwise: 'Splitwise', workbook: 'Accounts workbook' } as Record<string, string>)[key ?? ''] ?? key ?? ''
 
@@ -33,6 +35,8 @@ function UploadInner() {
   // Files shared to FinMerge from another app upload by themselves (app/share.ts).
   const [auto, setAuto] = useStored('upload.auto', false)
   const [dragging, setDragging] = useState(false)
+  // Rate questions you put off with "Later" ("trip|currency").
+  const [later, setLater] = useStored<string[]>('upload.rateLater', [])
   const keep = useLoad((b) => b.getKeepPdfCopies())
 
   /** Each pick adds to the list (statements often sit in different folders);
@@ -45,6 +49,7 @@ function UploadInner() {
     setPicked((prev) => [...prev.filter((p) => !added.some((a) => a.name === p.name)), ...added])
     setResults([])
     setError(undefined)
+    setLater([])
   }
 
   function remove(name: string) {
@@ -91,6 +96,9 @@ function UploadInner() {
   }, [auto, busy, picked])
 
   const needPw = [...new Set(results.filter((r) => r.status === 'password').map((r) => r.passwordFor!))]
+  const rateKey = (n: RateNeeded) => `${n.trip}|${n.currency}`
+  const needRate = [...new Map(results.flatMap((r) => r.needsRate ?? []).map((n) => [rateKey(n), n])).values()]
+    .filter((n) => !later.includes(rateKey(n)))
   const newCards = results.reduce((a, r) => a + (r.cardsAdded ?? 0), 0)
   const finished = results.length > 0 && !busy && needPw.length === 0
 
@@ -209,6 +217,18 @@ function UploadInner() {
         />
       ))}
 
+      {needRate.map((n) => (
+        <RatePrompt
+          key={rateKey(n)}
+          need={n}
+          busy={busy}
+          onLater={() => setLater((l) => [...l, rateKey(n)])}
+          onSaved={() =>
+            run(picked.filter((f) => results.some((r) => r.file === f.name && r.needsRate?.some((x) => rateKey(x) === rateKey(n)))))
+          }
+        />
+      ))}
+
       {results.length > 0 && (
         <ul className="results" aria-live="polite">
           {results.map((r) => (
@@ -288,6 +308,97 @@ function PasswordPrompt({
       <button className="btn primary" disabled={busy || !pw}>
         Open
       </button>
+    </form>
+  )
+}
+
+/** Splitwise rows in a currency whose trip has no RM rate yet: the rest of the file is already in.
+ * Saving the rate here sets it on the trip and reads the file again, which adds them. */
+function RatePrompt({ need, busy, onLater, onSaved }: { need: RateNeeded; busy: boolean; onLater(): void; onSaved(): void }) {
+  const { backend } = useData()
+  const [rate, setRate] = useState('')
+  const [note, setNote] = useState<string>()
+  const [saving, setSaving] = useState(false)
+  const value = Number(rate)
+  const valid = rate !== '' && value > 0
+  // A round amount worth about RM 1-10 (10,000 VND = RM 1.70): a rate typed the wrong way round shows.
+  const unit = valid ? 10 ** Math.max(0, Math.ceil(-Math.log10(value))) : 1
+  const rows = `${need.rows} Splitwise ${need.rows === 1 ? 'row' : 'rows'} in ${need.currency}`
+  const id = `rate-${need.trip}-${need.currency}`.replace(/\W+/g, '-')
+
+  if (!need.trip) {
+    return (
+      <div className="card pw-prompt" role="group" aria-labelledby={id}>
+        <h3 id={id}>{need.currency} rate needed</h3>
+        <p className="small">
+          {rows} weren't added: there's no trip in {need.currency} yet. Add the trip with its rate, then upload this file again.
+        </p>
+        <div className="btn-row">
+          <a className="btn primary" href={href({ name: 'trips' })}>Go to Trips</a>
+          <button type="button" className="btn" onClick={onLater}>Later</button>
+        </div>
+      </div>
+    )
+  }
+
+  async function save() {
+    setSaving(true)
+    setNote(undefined)
+    try {
+      const trip = (await backend.getSettings()).trips.find((t) => t.name === need.trip)
+      if (!trip) throw new Error(`No trip called "${need.trip}" any more.`)
+      await backend.saveTrip({
+        ...trip,
+        currencies: trip.currencies.map((c) => (c.code.toUpperCase() === need.currency ? { ...c, rate: value } : c)),
+      }, trip.name)
+      onSaved()
+    } catch (e) {
+      setNote(errorText(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form
+      className="card pw-prompt"
+      aria-labelledby={id}
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (valid) void save()
+      }}
+    >
+      <h3 id={id}>{need.currency} rate for {need.trip}</h3>
+      <p className="small">
+        {rows} weren't added yet: "{need.trip}" has no RM rate for {need.currency}. The rest of the file is in.
+      </p>
+      <Field label={`RM per 1 ${need.currency}`} hint={valid ? `${unit.toLocaleString()} ${need.currency} = RM ${(value * unit).toFixed(2)}` : undefined}>
+        <input type="number" inputMode="decimal" step="any" min="0" value={rate} onChange={(e) => setRate(e.target.value)} />
+      </Field>
+      {note && <p className="small" role="alert">{note}</p>}
+      <div className="btn-row">
+        <button
+          type="button"
+          className="btn"
+          disabled={saving}
+          onClick={async () => {
+            setNote(undefined)
+            try {
+              setRate(String(Number((await rateToRm(need.currency)).toPrecision(6))))
+            } catch (e) {
+              setNote(errorText(e))
+            }
+          }}
+        >
+          Today's rate
+        </button>
+        <button className="btn primary" disabled={busy || saving || !valid}>
+          {saving ? 'Saving…' : 'Save and add them'}
+        </button>
+        <button type="button" className="btn ghost" disabled={saving} onClick={onLater}>
+          Later
+        </button>
+      </div>
     </form>
   )
 }

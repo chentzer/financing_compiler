@@ -126,7 +126,10 @@ other members, are left out. Amounts are converted to RM at the rate of the
 trip in that currency (set in Trips), so spending during the trip lands
 on the trip tab and repayments on the month tab. Remarks keep the original
 amount ("Lunch · JPY 4,000.00"), and Splitwise categories like Dining out
-fill Category. A later export of the same group only adds what's new.
+fill Category. A later export of the same group only adds what's new. If
+the trip has no rate yet, the rest of the file still goes in and Upload asks
+for the rate: save it there to add those rows, or tap Later and upload the
+file again once the rate is set in Trips.
 
 A Splitwise row that is also on a statement (a dinner you paid by card, a
 repayment that came in by DuitNow) is recorded once. Same direction, within
