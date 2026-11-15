@@ -46,6 +46,16 @@ class Trip:
         return any(m.lower() in text for m in self.match)
 
 
+# Common names for currencies, as people type them in a trip's settings.
+CURRENCY_NAMES = {"YEN": "JPY", "WON": "KRW", "BAHT": "THB", "DONG": "VND", "RUPIAH": "IDR", "YUAN": "CNY",
+                  "RMB": "CNY", "RM": "MYR", "RINGGIT": "MYR"}
+
+
+def currency_code(name: str) -> str:
+    n = name.strip().upper()
+    return CURRENCY_NAMES.get(n, n)
+
+
 @dataclass
 class CustomTable:
     """One table on a custom sheet: Date, <label>, Amount (<currency>), Remarks."""

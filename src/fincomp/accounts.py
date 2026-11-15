@@ -35,7 +35,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 
-from .config import Config, Trip
+from .config import Config, Trip, currency_code
 from .models import Transaction
 
 FIRST_ROW = 3  # month tabs: rows 1-2 are headers
@@ -90,8 +90,14 @@ class AccountRow:
     statement: str = ""  # the raw statement description, shown on the card
     counterparty: str = ""  # the person, as on the statement; "" for a shop
     twin: str = ""  # Splitwise row that may be a bank row too: "<that row> #<its key>"
+    # "" = RM. Otherwise the amount is in this currency (a Splitwise row on a
+    # trip abroad) and the row goes in the trip's block for it.
+    currency: str = ""
 
     def values(self) -> list:
+        if self.currency:  # a trip's currency block, money in as a negative amount; key in the gap after it
+            return [self.date, self.item, self.category, self.amount if self.kind == "spend" else -self.amount,
+                    self.importance, self.remarks, self.key]
         if self.kind == "spend":
             return [self.date, self.item, self.category, self.amount, self.importance, self.source, self.remarks,
                     self.key]
@@ -129,12 +135,64 @@ def find_rule(rules: list[dict], t: Transaction) -> dict:
     return next((r for r in rules if _rule_matches(r, t)), {})
 
 
-def find_trip(trips: list[Trip], t: Transaction, rule: dict) -> str:
+def find_trip(trips: list[Trip], t: Transaction, rule: dict, groups: dict[str, str] | None = None) -> str:
+    code = foreign_currency(t)
+    if code:  # only a trip with a block for it can hold it: the group's, else the nearest
+        having = [tr for tr in trips if any(currency_code(c) == code for c, _ in tr.currencies())]
+        if (groups or {}).get(t.account) in {tr.name for tr in having}:
+            return groups[t.account]
+        return min(having, key=lambda tr: _days_off(tr, t.date)).name if having else ""
+    if rule.get("trip") and t.amount < 0:
+        return rule["trip"]
+    if t.source == SPLITWISE and t.account in (groups or {}):
+        return groups[t.account]  # a trip's Splitwise group: all of it, before/after the dates and money in too
     if t.amount >= 0:
         return ""  # money in stays on the month tab
-    if rule.get("trip"):
-        return rule["trip"]
     return next((trip.name for trip in trips if trip.owns(t.date, t.description)), "")
+
+
+SPLITWISE = "Splitwise"
+_CURRENCY = re.compile(r" · ([A-Z]{3}) [\d,]+\.\d\d$")  # Splitwise remarks end "· VND 400,000.00"
+
+
+def foreign_currency(t: Transaction) -> str:
+    """The currency a Splitwise row's amount is in when it isn't RM ("" for RM and every other row)."""
+    m = _CURRENCY.search(t.description) if t.source == SPLITWISE else None
+    return m.group(1) if m and m.group(1) != "MYR" else ""
+
+
+def _days_off(trip: Trip, when: date) -> int:
+    return 0 if trip.start <= when <= trip.end else min(abs((when - trip.start).days), abs((when - trip.end).days))
+
+
+def trip_rate(trips: list[Trip], code: str, when: date) -> float | None:
+    """RM per 1 `code`, from the nearest trip in it with a rate; None if none has one."""
+    rates = [(tr, r) for tr in trips for c, r in tr.currencies() if currency_code(c) == code and r]
+    return min(rates, key=lambda x: _days_off(x[0], when))[1] if rates else None
+
+
+def splitwise_trips(transactions: list[Transaction], trips: list[Trip]) -> dict[str, str]:
+    """{Splitwise group: trip}. A group belongs to the trip in its currency,
+    else the trip most of its rows fall in (ties: the group's latest rows win);
+    a group with neither has no trip and its rows go by date like any other."""
+    groups: dict[str, list[Transaction]] = {}
+    for t in transactions:
+        if t.source == SPLITWISE:
+            groups.setdefault(t.account, []).append(t)
+    out = {}
+    for group, ts in groups.items():
+        codes = {c for t in ts if (c := foreign_currency(t))}
+        last = max(t.date for t in ts)
+
+        def score(trip: Trip) -> tuple:
+            has = any(currency_code(c) in codes for c, _ in trip.currencies())
+            inside = sum(trip.start <= t.date <= trip.end for t in ts)
+            return has, inside, -abs((last - trip.end).days)
+
+        best = max(trips, key=score, default=None)
+        if best and score(best)[:2] != (False, 0):
+            out[group] = best.name
+    return out
 
 
 NAME_JOINERS = {"BIN", "BINTI", "A/L", "A/P", "S/O", "D/O"}
@@ -219,6 +277,7 @@ def build_rows(
     Rows the statement doesn't explain go in with what it does say, e.g.
     Item "Transfer", Category blank, Remarks the statement's text."""
     rows = []
+    groups = splitwise_trips(transactions, config.trips)
     for key, t, rule, answer, who in _classify(transactions, config, answers or {}):
         category = answer.get("category") or rule.get("category", "") or t.category
         importance = answer.get("importance") or rule.get("importance", "")
@@ -245,12 +304,13 @@ def build_rows(
                 who=who,
                 category=category,
                 importance=importance if importance in config.importance else "",
-                trip=find_trip(config.trips, t, rule),
+                trip=find_trip(config.trips, t, rule, groups),
                 needs=tuple(needs),
                 source=t.source,
                 statement=t.description,
                 counterparty=t.counterparty,
                 twin=twin,
+                currency=foreign_currency(t),
             )
         )
     return rows
@@ -347,6 +407,8 @@ def plan(rows: list[AccountRow], config: Config) -> dict[int, list[Tab]]:
 
     for r in rows:
         trip = trips.get(r.trip)
+        if trip is None and r.currency:
+            continue  # its trip is gone: comes back with a trip in that currency (never on a month tab in RM)
         if trip is None:
             if r.trip:
                 r.trip = ""  # a rule named a trip that isn't configured
@@ -436,6 +498,11 @@ def currency_cols(i: int) -> list[str]:
     """Date, Item, Category, Amount, Importance, Remarks of the trip's i-th currency block."""
     start = CURRENCY_START + i * (len(CASH_HEADERS) + 1)
     return [col_letter(start + k) for k in range(len(CASH_HEADERS))]
+
+
+def currency_key_col(i: int) -> str:
+    """Hidden key of the i-th currency block: the blank column after it."""
+    return col_letter(col_number(currency_cols(i)[-1]) + 1)
 
 
 def received_cols(n_currencies: int) -> list[str]:

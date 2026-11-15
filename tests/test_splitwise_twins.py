@@ -5,9 +5,9 @@ from datetime import date
 import pytest
 
 from fincomp import pipeline
-from fincomp.accounts import to_update_table
+from fincomp.accounts import _keyed, to_update_table
 from fincomp.combine import match_splitwise
-from fincomp.config import Config
+from fincomp.config import Config, Trip
 from fincomp.models import Transaction
 from fincomp.parsers.base import Parser
 from fincomp.sheetplan import cards_from_values
@@ -45,22 +45,24 @@ def test_repayment_matches_the_transfer_in():
 
 
 def test_foreign_currency_close_or_maybe():
-    s = sw(5, -101.5, cur="JPY", money=3500)  # 3,500 yen at the trip's rate
+    s = sw(5, -3500.0, cur="JPY")  # 3,500 yen: RM 101.50 at the trip's rate
+    rate = lambda t: 0.029  # noqa: E731
     one = bank(6, -103.2)  # card's own rate: 1.7% off
-    assert [(m.bank, m.sure) for m in match_splitwise([s, one])] == [(one, True)]
+    assert [(m.bank, m.sure) for m in match_splitwise([s, one], rate)] == [(one, True)]
     two = bank(5, -100.9, "LAWSON")  # two charges that close: only a maybe, nearest amount
-    assert [(m.bank, m.sure) for m in match_splitwise([s, one, two])] == [(two, False)]
+    assert [(m.bank, m.sure) for m in match_splitwise([s, one, two], rate)] == [(two, False)]
     far = bank(6, -108.0)  # 6% off: a maybe
-    assert [(m.bank, m.sure) for m in match_splitwise([s, far])] == [(far, False)]
-    assert match_splitwise([s, bank(6, -120.0)]) == []  # 18% off: not the same
-    assert match_splitwise([sw(5, -101.5), bank(6, -103.2)]) == []  # RM rows only match exactly
+    assert [(m.bank, m.sure) for m in match_splitwise([s, far], rate)] == [(far, False)]
+    assert match_splitwise([s, bank(6, -120.0)], rate) == []  # 18% off: not the same
+    assert match_splitwise([s, one]) == []  # no rate yet: not compared
+    assert match_splitwise([sw(5, -101.5), bank(6, -103.2)], rate) == []  # RM rows only match exactly
 
 
 def test_exact_partner_is_not_taken_by_a_converted_row():
     rm = sw(5, -100.0)
-    yen = sw(5, -101.0, cur="JPY", money=3500)
+    yen = sw(5, -3500.0, cur="JPY")
     b = bank(5, -100.0)
-    got = match_splitwise([yen, rm, b])
+    got = match_splitwise([yen, rm, b], lambda t: 0.0286)
     assert [(m.splitwise, m.sure) for m in got] == [(rm, True)]
 
 
@@ -123,8 +125,9 @@ def test_both_already_recorded_asks_on_the_splitwise_card():
 
 
 def test_a_maybe_asks_even_when_new():
-    s = sw(5, -101.5, cur="JPY", money=3500, category="Food")
-    out = pipeline.compile_transactions([s, bank(5, -108.0, category="Food")], Config())
+    s = sw(5, -3500.0, cur="JPY", category="Food")
+    japan = Trip("Japan", date(2026, 9, 1), date(2026, 9, 10), currency="JPY", rate=0.029)
+    out = pipeline.compile_transactions([s, bank(5, -108.0, category="Food")], Config(trips=[japan]))
     assert out.removed == [] and len(out.rows) == 2
     assert next(r for r in out.rows if r.source == "Splitwise").needs == ("twin",)
 
@@ -148,3 +151,44 @@ def test_a_row_you_removed_settles_it(removed):
     config.removed.add(keys["Splitwise" if removed == "splitwise" else "Maybank Card"])
     out = pipeline.compile_transactions([s, b], config, fresh=set())
     assert len(out.rows) == 1 and not out.rows[0].needs and out.removed == []
+
+
+# ---- paying a friend back: your portion is already counted, so the DuitNow isn't -----
+
+
+def settle(day, amount):
+    return Transaction(date=date(2026, 9, day), source="Splitwise", account="penang", amount=amount,
+                       description=f"Jane T. paid Bob L. · MYR {abs(amount):,.2f}", purpose="Paid back",
+                       reference="settle", internal=True, counterparty="Bob Lim", file="penang.csv")
+
+
+def test_a_new_duitnow_paying_a_friend_back_is_left_out():
+    config = Config()
+    s, b = settle(8, -270.0), bank(9, -270.0, "DUITNOW BOB LIM", source="GX Bank")
+    out = pipeline.compile_transactions([s, b], config)
+    assert out.rows == [] and len(out.removed) == 1 and "Settling up" in out.removed[0][3]
+
+
+def test_a_duitnow_already_recorded_gets_a_card():
+    config = Config()
+    s, b = settle(8, -270.0), bank(9, -270.0, "DUITNOW BOB LIM", source="GX Bank")
+    out = pipeline.compile_transactions([s, b], config, fresh=set())
+    (row,) = out.rows
+    assert row.source == "GX Bank" and row.needs[-1] == "twin" and row.twin.startswith("2026-09-08 Splitwise Jane T.")
+    s_key = next(k for k, t in _keyed([s, b]) if t is s)
+    config.reviewed.add(f"{row.key}~{s_key}")  # "Different"
+    again = pipeline.compile_transactions([s, b], config, fresh=set())
+    assert "twin" not in again.rows[0].needs
+
+
+def test_your_portion_never_matches_a_bank_row():
+    share = sw(5, -80.0, "Pho (your share of 160.00)", reference="share")
+    assert match_splitwise([share, bank(5, -80.0)]) == []
+
+
+def test_money_paid_back_to_you_is_recorded_once():
+    back = Transaction(date=date(2026, 9, 8), source="Splitwise", account="penang", amount=270.0,
+                       description="Bob L. paid Jane T. · MYR 270.00", purpose="Repayment", reference="settle",
+                       counterparty="Bob Lim", file="penang.csv")
+    out = pipeline.compile_transactions([back, bank(9, 270.0, "DUITNOW BOB LIM", source="GX Bank")], Config())
+    assert [(r.kind, r.amount) for r in out.rows] == [("earn", 270.0)] and len(out.removed) == 1

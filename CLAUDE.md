@@ -41,9 +41,23 @@ cd web; npm install; npm run dev           # demo data at localhost:5173
   in `parsers/__init__.py`. PDF parsers use only `pypdf` + `re`
   (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
   positions; the older TNG v2 layout is refused. `splitwise.py` reads a Splitwise group export (stdlib
-  csv): what the user paid = spending, repayments to them = earnings,
-  converted at the trip's rate (rows with no rate yet are left out and
-  reported as `FileResult.needs_rate`; Upload asks for it); never paired as transfers. A Splitwise row
+  csv), only the user's own money (Transaction.reference): a bill the user
+  paid = full cost spent; a friend's bill = the user's portion ("share");
+  a friend paying back = money in when paid ("settle"); the user paying a
+  friend back = "settle", internal (not recorded, the portion already is),
+  used only to drop the matching DuitNow (`pipeline.settle_splitwise`;
+  Different = Reviewed "bank key~splitwise key"); never paired as transfers.
+  Known limit (user's choice): mutual debts netted by Splitwise make the
+  cost show higher by the netted amount. Never converted: a row in VND keeps its VND
+  amount (Transaction.amount; `accounts.foreign_currency` reads the code from
+  the description) and goes in the trip's VND block (money in as a negative
+  amount), with its key in the hidden column after the block
+  (`currency_key_col`, kinds "cash0".. in sheetplan). Rows in a currency no
+  trip has wait (`FileResult.needs_trip`; Upload says to add the trip).
+  A group's every row goes on its trip tab (`accounts.splitwise_trips`: the
+  trip in its currency, else the one most rows fall in), money in included.
+  The trip's rate is only for its total, and to compare a VND row with a card
+  charge in RM. A Splitwise row
   that is also on a statement is recorded once (`combine.match_splitwise`,
   `pipeline.settle_splitwise`): the side uploaded later goes to Settings ›
   Removed; maybes and pairs already in the sheet get a "same as?" card

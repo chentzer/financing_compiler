@@ -400,13 +400,12 @@ export class MockBackend implements Backend {
         continue
       }
       if (f.name.toLowerCase().endsWith('.csv')) {
-        // Demo: the export is in the currency of a trip with no rate yet, if there is one.
-        const trip = this.s.settings.trips.find((t) => t.currencies.some((c) => !c.rate))
-        const code = trip?.currencies.find((c) => !c.rate)?.code
-        const needsRate = trip && code ? [{ trip: trip.name, currency: code, rows: 12 }] : undefined
+        // Demo: the export is in VND, which waits until a trip has it.
+        const hasVnd = this.s.settings.trips.some((t) => t.currencies.some((c) => c.code.toUpperCase() === 'VND'))
+        const needsTrip = hasVnd ? undefined : [{ currency: 'VND', rows: 12 }]
         results.push({
-          file: f.name, status: 'ok', source: 'splitwise', rowsAdded: 0, needsRate,
-          message: `Splitwise export: nothing to add in the demo.${needsRate ? ` 12 ${code} row(s) wait for the ${code} rate on "${trip!.name}": upload this file again once it's set.` : ''}`,
+          file: f.name, status: 'ok', source: 'splitwise', rowsAdded: 0, needsTrip,
+          message: `Splitwise export: nothing to add in the demo.${needsTrip ? " 12 VND row(s) wait for a trip in VND: upload this file again once it's added." : ''}`,
         })
         continue
       }

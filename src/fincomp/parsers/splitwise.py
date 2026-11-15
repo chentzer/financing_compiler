@@ -1,20 +1,29 @@
 """Splitwise group export (CSV: Date, Description, Category, Cost, Currency,
 then one balance column per member).
 
-A member's balance on a row is what they paid minus their share, so for you:
+A member's balance on a row is what they paid minus their share, so for you
+(Transaction.reference says which):
 - Expense, your balance > 0: you paid it -> spending of the full Cost.
+- Expense, your balance < 0: someone else paid -> spending of your portion
+  (your balance), "share".
 - Expense, every balance 0: a solo expense, taken as yours -> spending.
-- Expense, your balance <= 0 otherwise: someone else paid; your part comes
-  in when you pay them back (below) -> not recorded.
-- Payment ("X paid You"), your balance < 0: money to you -> earning.
-- Payment ("You paid X"), your balance > 0: money from you -> spending.
-- Payments between other members -> not recorded.
+- Payment to you ("X paid You"): money paid back to you -> earning, the day
+  it's paid ("settle").
+- Payment from you ("You paid X"): your portion is already counted on the
+  friend's bill, so it isn't recorded ("settle", internal); a DuitNow on a
+  statement that is the same money isn't either (pipeline.settle_splitwise).
+- Payments between other members -> not read.
 
-Amounts are in the group's currency and converted to RM at the rate of the
-trip in that currency (Settings > Trips), nearest by date. Rows in RM need
-no rate. Rows whose trip has no rate yet (or no trip in that currency) are
-left out and counted in `missing`: the upload goes ahead, the app asks for
-the rate, and uploading the file again adds them. Which column is you: the one matching `config.me` (your Google
+shortcut: when you and a friend owe each other, Splitwise subtracts, so they
+pay you back less than they owed and your cost comes out higher by what was
+subtracted; the user chose this over per-item paid-back rows (Nov 2026).
+
+Amounts stay in the group's currency: a row in VND keeps its VND amount
+(Transaction.amount) and goes in the VND block of the trip in that currency
+(accounts.foreign_currency reads the currency back from the description).
+Nothing is converted. Rows in a currency no trip has are left out and
+counted in `missing`: the upload goes ahead, the app says to add the trip,
+and uploading the file again adds them. Which column is you: the one matching `config.me` (your Google
 name in the app; `me = [...]` in config.toml).
 
 Splitwise's categories fill Category where they map to yours (Dining out ->
@@ -31,12 +40,14 @@ import io
 import re
 from datetime import date
 
-from ..config import Config
+from ..config import Config, currency_code  # noqa: F401 (currency_code: used here and imported from here)
 from ..models import Transaction
 from .base import ParseError, Parser
 
 HEADER = ["Date", "Description", "Category", "Cost", "Currency"]
 SOURCE = "Splitwise"
+# Transaction.reference of each kind of Splitwise row ("" = something you paid in full).
+SHARE, SETTLE = "share", "settle"
 
 CATEGORY_MAP = {
     "dining out": "Food", "groceries": "Food", "liquor": "Food", "food and drink - other": "Food",
@@ -53,14 +64,6 @@ CATEGORY_MAP = {
     "education": "Self-Development",
 }
 
-# Common names for currencies, as people type them in a trip's settings.
-CURRENCY_NAMES = {"YEN": "JPY", "WON": "KRW", "BAHT": "THB", "DONG": "VND", "RUPIAH": "IDR", "YUAN": "CNY",
-                  "RMB": "CNY", "RM": "MYR", "RINGGIT": "MYR"}
-
-
-def currency_code(name: str) -> str:
-    n = name.strip().upper()
-    return CURRENCY_NAMES.get(n, n)
 
 
 def _words(name: str) -> set[str]:
@@ -97,19 +100,12 @@ class SplitwiseParser(Parser):
     def sniff(self, name: str, data: bytes, password: str = "") -> bool:
         return data[:200].decode("utf-8-sig", "ignore").lstrip().startswith(",".join(HEADER))
 
-    def rate(self, currency: str, when: date) -> float | None:
-        """RM per 1 unit; None (and counted in self.missing as (trip, code)) when
-        the nearest trip in that currency has no rate, or there's no such trip."""
-        code = currency_code(currency)
-        if code == "MYR":
-            return 1.0
-        found = [(t, r) for t in self.config.trips for c, r in t.currencies() if currency_code(c) == code]
-        trip, rate = min(found, key=lambda tr: 0 if tr[0].start <= when <= tr[0].end else min(
-            abs((when - tr[0].start).days), abs((when - tr[0].end).days))) if found else (None, None)
-        if not rate:
-            key = (trip.name if trip else "", code)
-            self.missing[key] = self.missing.get(key, 0) + 1
-        return rate or None
+    def has_trip(self, code: str) -> bool:
+        """RM, or a currency some trip has a block for (counted in self.missing if not)."""
+        if code == "MYR" or any(currency_code(c) == code for t in self.config.trips for c, _ in t.currencies()):
+            return True
+        self.missing[code] = self.missing.get(code, 0) + 1
+        return False
 
     def parse_bytes(self, name: str, data: bytes, password: str = "") -> list[Transaction]:
         rows = list(csv.reader(io.StringIO(data.decode("utf-8-sig"))))
@@ -119,7 +115,7 @@ class SplitwiseParser(Parser):
         me = find_me(members, self.config.me)
         group = re.sub(r"_\d{4}-\d{2}-\d{2}_export$", "", name.rsplit(".", 1)[0])  # same for every export
 
-        self.missing: dict[tuple[str, str], int] = {}  # (trip, currency) -> rows left out
+        self.missing: dict[str, int] = {}  # currency no trip has -> rows left out
         out = []
         for r in rows[1:]:
             if len(r) < 5 + len(members) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r[0].strip()):
@@ -132,26 +128,30 @@ class SplitwiseParser(Parser):
             when = date.fromisoformat(r[0].strip())
             others = [(members[i], b) for i, b in enumerate(balances) if i != me and b]
 
+            code = currency_code(cur)
+            if (mine or not any(balances)) and not self.has_trip(code):
+                continue  # added when the file is uploaded again, once a trip has this currency
+
+            def add(amount: float, label: str, purpose: str, reference: str, other: str = "", **more) -> None:
+                amount = round(amount, 2)  # in `code`: not converted
+                out.append(Transaction(
+                    date=when, source=SOURCE, account=group, description=f"{label} · {code} {abs(amount):,.2f}",
+                    amount=amount, type=category, counterparty=other, purpose=purpose, reference=reference,
+                    category="" if reference == SETTLE else CATEGORY_MAP.get(category.lower(), ""), **more))
+
             if category == "Payment":
                 if not mine:
                     continue  # between other members
                 other = next((m for m, b in others if (b > 0) == (mine < 0)), others[0][0] if others else "")
-                received = mine < 0
-                amount = abs(mine)
-                purpose = "Repayment" if received else "Paid back"
-            else:
-                if mine < 0 or (mine == 0 and any(balances)):
-                    continue  # someone else paid
-                other, received, amount, purpose = "", False, cost, desc
-
-            rate = self.rate(cur, when)
-            if rate is None:
-                continue  # no rate yet: added when the file is uploaded again
-            rm = round(amount * rate, 2)
-            out.append(Transaction(
-                date=when, source=SOURCE, account=group,
-                description=f"{desc} · {currency_code(cur)} {amount:,.2f}",
-                amount=rm if received else -rm, type=category, counterparty=other, purpose=purpose,
-                category=CATEGORY_MAP.get(category.lower(), ""),
-            ))
+                if mine < 0:  # paid back to you
+                    add(-mine, desc, "Repayment", SETTLE, other)
+                else:  # you paying a friend: your portion is already on their bill
+                    add(-mine, desc, "Paid back", SETTLE, other, internal=True)
+            elif mine > 0:  # you paid: the whole bill
+                add(-cost, desc, desc, "")
+            elif mine < 0:  # someone else paid: your portion
+                payer = max(others, key=lambda o: o[1])[0] if others else ""
+                add(mine, f"{desc} (your share of {cost:,.2f})", desc, SHARE, payer)
+            elif not any(balances):
+                add(-cost, desc, desc, "")  # solo: taken as yours
         return out

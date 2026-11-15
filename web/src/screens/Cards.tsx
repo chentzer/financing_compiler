@@ -92,6 +92,8 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   // A Splitwise row that may also be on a statement: answered first (Same / Different).
   const [different, setDifferent] = useState(false)
   const twinOpen = !!card.twin && !different
+  // A bank row that may be you paying a friend back in Splitwise (the card is the bank row's).
+  const settling = !!card.twin && card.source !== 'Splitwise'
   const twinOnly = !!card.twin && !needsPurpose && !needsCategory // nothing else to ask
   /** "Different" answered here: remembered along with whatever closes the card. */
   const keepTwin = async () => {
@@ -118,7 +120,8 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   async function act(what: 'save' | 'later' | 'notmine' | 'skip' | 'trip' | 'same' | 'different') {
     setError(undefined)
     if (what === 'same') {
-      onDone(`Removed: the ${card.twin?.text.replace(/^\S+ /, '').split(' RM ')[0] || 'bank'} row is kept`, () => backend.notMine(card.key))
+      onDone(settling ? 'Removed: your part is already counted in Splitwise'
+        : `Removed: the ${card.twin?.text.replace(/^\S+ /, '').split(' RM ')[0] || 'bank'} row is kept`, () => backend.notMine(card.key))
       return
     }
     if (what === 'different') {
@@ -189,7 +192,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         <span className="muted">{shortDate(card.date)}</span>
         {card.source && <span className="pill">{card.source}</span>}
       </div>
-      <div className={isSpend ? 'uc-amount neg' : 'uc-amount pos'}>{signedRm(card.amount, card.kind)}</div>
+      <div className={isSpend ? 'uc-amount neg' : 'uc-amount pos'}>{signedRm(card.amount, card.kind, card.currency)}</div>
       {card.remarks && <div className="uc-who">{card.remarks}</div>}
       <dl className="uc-meta">
         <dt>Source</dt>
@@ -207,7 +210,11 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       {card.twin && twinOpen && (
         <div className="twin-box" role="group" aria-labelledby={`twin-${card.key}`}>
           <p id={`twin-${card.key}`}>
-            <strong>Also on a statement?</strong> This Splitwise row may be the same money as:
+            {settling ? (
+              <><strong>Paying a friend back?</strong> This may be the same money as this Splitwise payment. Your part is already counted on their bill:</>
+            ) : (
+              <><strong>Also on a statement?</strong> This Splitwise row may be the same money as:</>
+            )}
           </p>
           <p className="mono small">{card.twin.text.replace(/^\d{4}-\d{2}-\d{2}/, (d) => shortDate(d))}</p>
           <div className="btn-row">

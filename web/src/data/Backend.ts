@@ -73,6 +73,8 @@ export interface Card extends Row {
   statement: string
   /** The person as on the statement; "" for a shop. Used for "Same for every…". */
   counterparty: string
+  /** Set when `amount` is in this currency, not RM (a Splitwise row in a trip's currency block). */
+  currency?: string
   /** A Splitwise row that may be the same money as this bank or wallet row (`key` is that row's). */
   twin?: { text: string; key: string }
 }
@@ -142,13 +144,12 @@ export interface UploadResult {
   passwordFor?: string
   /** status "password": true when a password was tried and didn't open the PDF. */
   wrongPassword?: boolean
-  /** Splitwise rows left out until their trip has an RM rate (the rest of the file is in).
-   * trip "" = no trip in that currency yet. Uploading the file again adds them. */
-  needsRate?: RateNeeded[]
+  /** Splitwise rows left out because no trip has their currency yet (the rest of the file is in).
+   * Uploading the file again once the trip is added puts them in its block for that currency. */
+  needsTrip?: TripNeeded[]
 }
 
-export interface RateNeeded {
-  trip: string
+export interface TripNeeded {
   /** e.g. "VND". */
   currency: string
   rows: number

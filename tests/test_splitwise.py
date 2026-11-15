@@ -29,25 +29,62 @@ def parse(config: Config, name="japan-trip_2026-10-20_export.csv"):
     return SplitwiseParser(config).parse_bytes(name, CSV)
 
 
-def test_what_you_paid_is_spending_repayments_are_earnings():
+def test_your_spending_and_money_paid_back_to_you():
     rows = parse(Config(me=["Jane Tan"], trips=[JAPAN]))
-    got = [(t.date.day, t.purpose, t.amount, t.counterparty, t.category) for t in rows]
+    got = [(t.date.day, t.purpose, t.amount, t.counterparty, t.reference, t.internal) for t in rows]
     assert got == [
-        (11, "Train pass", -90.0, "", ""),                 # solo: yours, full cost at 0.03
-        (11, "Karaoke", -1200.0, "", ""),                  # you paid all of it
-        (11, "Repayment", 300.0, "Ahmad", ""),            # paid back to you: earning
-        (12, "Paid back", -30.0, "Bob Lim", ""),          # you paid Bob back: spending
-    ]  # Lunch (Bob paid), Mei paying Bob, and the gift shop (not yours) are left out
+        (11, "Train pass", -3000.0, "", "", False),            # solo: yours, full cost, in yen
+        (11, "Karaoke", -40000.0, "", "", False),              # you paid the whole bill
+        (11, "Repayment", 10000.0, "Ahmad", "settle", False),  # paid back to you, the day it's paid
+        (12, "Lunch", -1000.0, "Bob Lim", "share", False),     # Bob paid: your portion
+        (12, "Paid back", -1000.0, "Bob Lim", "settle", True),  # paying Bob: your portion is already counted
+    ]  # Mei paying Bob, and the gift shop (not yours), are left out
     assert rows[1].description == "Karaoke · JPY 40,000.00" and {t.source for t in rows} == {"Splitwise"}
+    assert rows[3].description == "Lunch (your share of 4,000.00) · JPY 1,000.00"
     assert {t.account for t in rows} == {"japan-trip"}  # same for every export of the group
+
+
+def test_netting_known_limit():
+    """You paid Bob's 350 tote bag, Bob paid your 80 part of a pho: Bob pays you back 270 (350 - 80).
+    Recorded: 350 + 80 - 270 = 160, though your cost is 80 (the shortcut in splitwise.py)."""
+    csv = b"""Date,Description,Category,Cost,Currency,Bob Lim,Jane Tan
+
+2026-08-11,Tote bag,General,350.00,MYR,-350.00,350.00
+2026-08-11,Pho,Dining out,160.00,MYR,80.00,-80.00
+2026-08-14,Bob L. paid Jane T.,Payment,270.00,MYR,270.00,-270.00
+"""
+    rows = SplitwiseParser(Config(me=["Jane Tan"])).parse_bytes("t.csv", csv)
+    assert -sum(t.amount for t in rows if not t.internal) == 160.0
 
 
 def test_into_accounts_trip_and_month():
     cfg = Config(me=["Jane Tan"], trips=[JAPAN])
     rows = build_rows(parse(cfg), cfg)
     tabs = {t.title: t for t in plan(rows, cfg)[2026]}
-    assert [r.item for r in tabs["Japan Trip"].rows] == ["Train pass", "Karaoke", "Paid back"]
-    assert [(r.kind, r.item, r.who) for r in tabs["August 2026"].rows] == [("earn", "Repayment", "From Ahmad")]
+    # The whole group is the trip's: money paid back to you too (in the yen block).
+    assert [(r.kind, r.item) for r in tabs["Japan Trip"].rows] == [
+        ("spend", "Train pass"), ("spend", "Karaoke"), ("earn", "Repayment"), ("spend", "Lunch")]
+    assert "August 2026" not in tabs or not tabs["August 2026"].rows
+
+
+def test_whole_group_goes_to_its_trip_whatever_the_date():
+    from fincomp.accounts import splitwise_trips
+    from fincomp.models import Transaction
+
+    def sw(d, amount, cur="VND", group="vietnam-trip"):
+        return Transaction(date(2026, *d), "Splitwise", group, f"Pho · {cur} 1.00", amount)
+
+    viet = Trip("Vietnam", date(2026, 11, 7), date(2026, 11, 10), currency="Dong", rate=0.00016)
+    other = Trip("Penang", date(2026, 9, 12), date(2026, 9, 15))
+    rows = [sw((9, 14), -1320.45, "MYR"), sw((9, 27), 1374.47, "MYR"), sw((11, 8), -64.0), sw((11, 16), -370.0)]
+    cfg = Config(trips=[other, viet])
+    assert splitwise_trips(rows, cfg.trips) == {"vietnam-trip": "Vietnam"}  # its currency, not Penang's dates
+    assert {r.trip for r in build_rows(rows, cfg)} == {"Vietnam"}  # booking before, repayment, and after the end
+
+    # An RM-only group: the trip most of its rows fall in; none at all: by date as before.
+    rm = [sw((9, 13), -50.0, "MYR", "penang"), sw((9, 20), -30.0, "MYR", "penang")]
+    assert splitwise_trips(rm, cfg.trips) == {"penang": "Penang"}
+    assert splitwise_trips([sw((3, 1), -5.0, "MYR", "lunch")], cfg.trips) == {}
 
 
 def test_splitwise_category_fills_yours():
@@ -78,18 +115,74 @@ def test_found_by_content_and_your_name():
         find_me(["Bob Lim"], ["Jane Tan"])
 
 
-def test_rows_without_a_rate_wait_the_rest_is_read():
+def test_rows_with_no_trip_in_their_currency_wait_the_rest_is_read():
     from fincomp.pipeline import parse_files
 
     mixed = CSV.replace(b"2026-08-13,Gift shop", b"2026-08-13,Bus,General,12.00,MYR,0.00,0.00,0.00,0.00\n2026-08-13,Gift shop")
     p = SplitwiseParser(Config(me=["Jane Tan"]))
     assert [t.purpose for t in p.parse_bytes("j.csv", mixed)] == ["Bus"]  # only the RM row
-    assert p.missing == {("", "JPY"): 4}  # no trip in yen yet
+    assert p.missing == {"JPY": 5}  # Splitwise lines in yen: no trip in yen yet
+    _, [res] = parse_files([("j.csv", mixed)], Config(me=["Jane Tan"]))
+    assert res.ok and res.count == 1 and res.needs_trip == [{"currency": "JPY", "rows": 5}]
 
+    # A trip in yen, even with no rate yet: every row, nothing waits.
     no_rate = Trip("Japan Trip", date(2026, 8, 10), date(2026, 8, 20), currency="JPY")
     _, [res] = parse_files([("j.csv", mixed)], Config(me=["Jane Tan"], trips=[no_rate]))
-    assert res.ok and res.count == 1 and res.needs_rate == [{"trip": "Japan Trip", "currency": "JPY", "rows": 4}]
+    assert res.count == 6 and res.needs_trip == []
 
-    # With the rate set, the same file gives every row and nothing waits.
-    _, [res] = parse_files([("j.csv", mixed)], Config(me=["Jane Tan"], trips=[JAPAN]))
-    assert res.count == 5 and res.needs_rate == []
+
+YEN_BLOCK = [("Train pass", 3000.0), ("Karaoke", 40000.0), ("Repayment", -10000.0), ("Lunch", 1000.0)]
+
+
+def test_foreign_rows_go_in_the_trip_currency_block_with_keys():
+    from fincomp.sheetplan import FIELDS, cash_range, data_ranges, locate
+
+    cfg = Config(me=["Jane Tan"], trips=[JAPAN])
+    rows = build_rows(parse(cfg), cfg)
+    tab = next(t for t in plan(rows, cfg)[2026] if t.title == "Japan Trip")
+    assert {r.currency for r in tab.rows} == {"JPY"}
+    assert [(r.item, r.values()[3]) for r in tab.rows] == YEN_BLOCK  # money in is a negative yen amount
+    assert cash_range("Japan Trip", 0) == "'Japan Trip'!S4:Y"  # Date..Remarks, key in the gap (Y)
+    assert cash_range("Japan Trip", 0) in data_ranges([], ["Japan Trip"], cfg)
+    found = locate({cash_range("Japan Trip", 0): [r.values() for r in tab.rows]})
+    assert {k: (kind, row) for k, (_, kind, row, _) in found.items()} == \
+        {r.key: ("cash0", 4 + i) for i, r in enumerate(tab.rows)}
+    assert FIELDS["cash0"]["category"] == "U"
+
+
+def test_sync_writes_the_yen_block_once():
+    from fincomp import sheetplan
+
+    cfg = Config(me=["Jane Tan"], trips=[JAPAN])
+    tabs = plan(build_rows(parse(cfg), cfg), cfg)[2026]
+    sheet_tabs = ["Sheet1"]
+    values: dict[str, list[list]] = {}
+
+    def sync():
+        prepared = sheetplan.prepare(2026, list(sheet_tabs), tabs, cfg, not values)
+        for added in prepared.add:
+            sheet_tabs.insert(added.index, added.title)
+        for gone in prepared.delete:
+            sheet_tabs.remove(gone)
+        read = {r: values.get(r, []) for r in prepared.reads}
+        return sheetplan.finish(2026, prepared, {t: i for i, t in enumerate(sheet_tabs)}, read, tabs, cfg)
+
+    done = sync()
+    w = {d["range"]: d["values"] for d in done.data}
+    yen = w["'Japan Trip'!S4:Y7"]
+    assert [(r[1], r[3]) for r in yen] == YEN_BLOCK and all(r[6] for r in yen)
+    assert not any(k.startswith(("'Japan Trip'!A4", "'Japan Trip'!J4")) for k in w)  # nothing in the RM blocks
+    assert any(r.get("updateDimensionProperties", {}).get("range", {}).get("startIndex") == 24
+               and r["updateDimensionProperties"]["properties"].get("hiddenByUser") for r in done.requests)  # Y hidden
+
+    values[sheetplan.cash_range("Japan Trip", 0)] = yen  # what's in the sheet now
+    again = sync()
+    assert (again.added, again.already) == (0, 4)
+
+
+def test_a_card_for_a_yen_row_says_yen():
+    from fincomp.sheetplan import cards_from_values
+
+    rows = [["2026-08-11", -3000, "", "Train pass · JPY 3,000.00", "Train pass", "Category", "Japan Trip", "k1"],
+            ["2026-08-11", -12, "", "Bus · MYR 12.00", "Bus", "Category", "Japan Trip", "k2"]]
+    assert [c["currency"] for c in cards_from_values(rows)] == ["JPY", ""]

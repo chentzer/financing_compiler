@@ -39,7 +39,7 @@ import {
   type TripTotal,
   type UploadFile,
   type UploadProgress,
-  type RateNeeded,
+  type TripNeeded,
   type UploadResult,
   type YearSummary,
   type VaultState,
@@ -71,11 +71,11 @@ const SHEETS_HEADER = ['Name', 'Year', 'Counts as (earnings / spending / blank)'
 const LEDGER_RANGE = "'Ledger'!A1:N"
 const LATER_KEY = 'fincomp.later'
 
-interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; needs_rate: RateNeeded[]; ok: boolean }
+interface FileOut { name: string; source: string; parser: string; count: number; error: string; needs_password: string; needs_trip: TripNeeded[]; ok: boolean }
 interface CompileOut { files: FileOut[]; ledger: Values; years: number[]; pairs: number; duplicates: number; toUpdate: number; removed: Values; sameAsSplitwise: number }
 interface Prep { add: { title: string; index: number; rows: number; cols: number }[]; delete: string[]; reads: string[]; widths?: Record<string, number> }
 interface Fin { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[]; added: number; already?: number; toUpdate?: number; minRows?: Record<string, number> }
-interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; twin: string; twinKey: string; tab: string; key: string }
+interface PyCard { row: number; date: string | null; amount: number; who: string; statement: string; recordedAs: string; needsPurpose: boolean; needsCategory: boolean; twin: string; twinKey: string; currency: string; tab: string; key: string }
 interface PyRow { kind: 'spend' | 'earn'; row: number; date: string | null; item: string; category: string; amount: number; importance: string; source: string; remarks: string; key: string }
 interface Target { title: string; trip: boolean; year: number; currencies: string[] }
 type Plan = { clear: string[]; data: { range: string; values: unknown[][] }[]; requests: object[] }
@@ -410,6 +410,7 @@ export class PyodideBackend implements Backend {
           statement: c.statement,
           counterparty: person ? c.statement.split(' - ')[0].replace(/^(From|To) /, '') : '',
           twin: c.twinKey ? { text: c.twin, key: c.twinKey } : undefined,
+          currency: c.currency || undefined,
         }
         this.cardsAt.set(c.key, { book: b, tab: c.tab, trip: !isMonthTab(c.tab), card })
         out.push(card)
@@ -842,12 +843,12 @@ export class PyodideBackend implements Backend {
     }
 
     const tail = okFiles.length
-      ? ` ${out.pairs} transfer(s) between your accounts paired;${out.sameAsSplitwise ? ` ${out.sameAsSplitwise} Splitwise row(s) already on a statement, recorded once;` : ''} ${out.toUpdate} transaction(s) to update.`
+      ? ` ${out.pairs} transfer(s) between your accounts paired;${out.sameAsSplitwise ? ` ${out.sameAsSplitwise} row(s) on both Splitwise and a statement, recorded once;` : ''} ${out.toUpdate} transaction(s) to update.`
       : ''
     return out.files.map((f): UploadResult => {
       if (f.ok) {
-        const waiting = f.needs_rate.map((n) => ` ${n.rows} ${n.currency} row(s) wait for ${n.trip ? `the ${n.currency} rate on "${n.trip}"` : `a trip in ${n.currency}`}: upload this file again once it's set.`).join('')
-        return { file: f.name, status: 'ok', source: f.parser, rowsAdded: f.count, needsRate: f.needs_rate, message: `${f.count} transactions read.${tail}${waiting}` }
+        const waiting = f.needs_trip.map((n) => ` ${n.rows} ${n.currency} row(s) wait for a trip in ${n.currency}: upload this file again once it's added.`).join('')
+        return { file: f.name, status: 'ok', source: f.parser, rowsAdded: f.count, needsTrip: f.needs_trip, message: `${f.count} transactions read.${tail}${waiting}` }
       }
       if (f.needs_password) {
         const tried = !!passwords[f.needs_password]

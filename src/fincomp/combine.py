@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Callable
 
 from .models import Transaction
 
@@ -115,7 +116,8 @@ def _foreign(t: Transaction) -> bool:
     return bool(m) and m.group(1) != "MYR"
 
 
-def match_splitwise(transactions: list[Transaction]) -> list[SplitwiseMatch]:
+def match_splitwise(transactions: list[Transaction],
+                    rate: Callable[[Transaction], float | None] = lambda t: None) -> list[SplitwiseMatch]:
     """Splitwise rows that are the same money as a bank or wallet row: what
     you paid by card and also put in Splitwise, or a repayment that shows
     as a transfer. Same direction, within SPLITWISE_DAYS.
@@ -124,14 +126,21 @@ def match_splitwise(transactions: list[Transaction]) -> list[SplitwiseMatch]:
     currency, converted at the trip's rate, never matches the card's RM
     exactly: one bank row within CLOSE is a match; otherwise the nearest
     within LOOSE is only a maybe (`sure` False). Run after transfer
-    pairing, so money between your own accounts is never taken."""
-    sw = sorted((t for t in transactions if t.source == SPLITWISE and t.amount and not t.internal), key=lambda t: t.date)
+    pairing, so money between your own accounts is never taken.
+
+    A foreign row's amount is in its own currency: `rate(t)` gives RM per
+    1 (the trip's rate); a row with no rate isn't matched."""
+    rm = {id(t): (t.amount * r if (r := rate(t)) else None) if _foreign(t) else t.amount for t in transactions}
+    # What you paid in full, and settling up (paying a friend back is internal: not recorded, but the
+    # same money as a DuitNow). Your portion of a friend's bill never moved your money.
+    sw = sorted((t for t in transactions if t.source == SPLITWISE and rm[id(t)] and t.reference in ("", "settle")
+                 and (not t.internal or t.reference == "settle")), key=lambda t: t.date)
     banks = [t for t in transactions if t.source != SPLITWISE and t.amount and not t.internal]
     used: set[int] = set()
     out: list[SplitwiseMatch] = []
 
     def candidates(s: Transaction) -> list[Transaction]:
-        return [b for b in banks if id(b) not in used and (b.amount > 0) == (s.amount > 0)
+        return [b for b in banks if id(b) not in used and (b.amount > 0) == (rm[id(s)] > 0)
                 and abs((b.date - s.date).days) <= SPLITWISE_DAYS]
 
     def take(s: Transaction, b: Transaction, sure: bool) -> None:
@@ -139,13 +148,13 @@ def match_splitwise(transactions: list[Transaction]) -> list[SplitwiseMatch]:
         out.append(SplitwiseMatch(s, b, sure))
 
     for s in sw:  # exact amounts first, so a converted row can't take an exact row's partner
-        exact = [b for b in candidates(s) if abs(abs(b.amount) - abs(s.amount)) < 0.005]
+        exact = [b for b in candidates(s) if abs(abs(b.amount) - abs(rm[id(s)])) < 0.005]
         if exact:
             take(s, min(exact, key=lambda b: abs((b.date - s.date).days)), True)
     for s in sw:
         if id(s) in used or not _foreign(s):
             continue
-        off = {id(b): abs(abs(b.amount) - abs(s.amount)) / abs(s.amount) for b in candidates(s)}
+        off = {id(b): abs(abs(b.amount) - abs(rm[id(s)])) / abs(rm[id(s)]) for b in candidates(s)}
         near = sorted((b for b in candidates(s) if off[id(b)] <= LOOSE), key=lambda b: off[id(b)])
         if near:
             close = [b for b in near if off[id(b)] <= CLOSE]

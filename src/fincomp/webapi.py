@@ -100,6 +100,8 @@ def row_sources(values: dict) -> dict[str, str]:
     for key, (_, kind, _, r) in sheetplan.locate(values).items():
         i = {"earn": 3, "spend": 5}.get(kind)  # Earnings P-U: Source is S; Spendings A-H: F; paid back: none
         out[key] = str(r[i]).strip() if i is not None and len(r) > i else ""
+        if kind.startswith("cash"):
+            out[key] = "Splitwise"  # a trip's currency block has no Source; only Splitwise rows there have keys
     return out
 
 
@@ -229,7 +231,7 @@ def _ids(sheet_ids: dict) -> dict[str, int]:
 def book_ranges(year: int, titles: list[str]) -> list[str]:
     """Every month and trip tab's rows, to find a row by key anywhere in the book."""
     months, trips = sheetplan.month_and_trip_tabs(list(titles), int(year), _state["config"])
-    return sheetplan.data_ranges(months, trips)
+    return sheetplan.data_ranges(months, trips, _state["config"])
 
 
 def take_row(key: str, values: dict, sheet_ids: dict) -> dict:

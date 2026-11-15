@@ -27,10 +27,10 @@ from datetime import date, timedelta
 from .accounts import (
     CAT_COLS, COLOURS, EARN_COLS, EARN_KEY, FINAL_CELL, FIRST_ROW, IMP_COLS, PAID_COLS, PAID_KEY, SPEND_COLS,
     SPEND_KEY, SUMMARY_COLS, TO_UPDATE, TO_UPDATE_HEADERS, TRIP_FIRST_ROW, TWIN, TRIP_SUMMARY_COLS, TRIPS_CELL, YEAR_SUMMARY,
-    PAID_KEY, AccountRow, Tab, col_letter, col_number, currency_cols, month_layout, month_links, parse_month_title, quote,
+    PAID_KEY, AccountRow, Tab, col_letter, col_number, currency_cols, currency_key_col, month_layout, month_links, parse_month_title, quote,
     received_cols, tab_order, to_update_table, trip_layout, trip_width, year_summary_cells,
 )
-from .config import Config
+from .config import Config, currency_code
 
 TAB_ROWS = 1000
 TAB_COLS = 26
@@ -40,6 +40,12 @@ EARN_FIELDS = {"date": "P", "item": "Q", "amount": "R", "source": "S", "remarks"
 PAID_FIELDS = {"date": "J", "item": "K", "amount": "L", "remarks": "M"}  # trip tab: paid back to you
 FIELDS = {"spend": SPEND_FIELDS, "earn": EARN_FIELDS, "paid": PAID_FIELDS}
 BLOCKS = {"spend": ("A", "H"), "earn": ("P", "U"), "paid": (PAID_COLS[0], PAID_KEY)}
+MAX_CURRENCIES = 10
+# A trip's i-th currency block ("cash0", "cash1" ...): Date, Item, Category, Amount, Importance, Remarks, key.
+for _i in range(MAX_CURRENCIES):
+    _c = currency_cols(_i)
+    FIELDS[f"cash{_i}"] = dict(zip(["date", "item", "category", "amount", "importance", "remarks"], _c))
+    BLOCKS[f"cash{_i}"] = (_c[0], currency_key_col(_i))
 GAP_COLS = {"month": "ILOV"}  # blank columns between sections (trips: trip_gaps)
 CLEARABLE = {"remarks", "source"}  # fields an edit may empty
 
@@ -100,12 +106,14 @@ def col_index(letter: str) -> int:
 
 
 def trip_gaps(trip) -> list[str]:
-    """Blank columns of a trip tab: after RM spending, paid back, summary, and each currency block."""
-    gaps = ["I", "O", "R"]
-    n = len(trip.currencies()) if trip else 0
-    for i in range(n):
-        gaps.append(col_letter(col_index(currency_cols(i)[-1]) + 1))
-    return gaps
+    """Blank columns of a trip tab: after RM spending, paid back and summary.
+    The one after each currency block holds its hidden keys (currency_key_col)."""
+    return ["I", "O", "R"]
+
+
+def cash_range(tab_title: str, i: int) -> str:
+    """A trip's i-th currency block with its keys, as read to find rows by key."""
+    return f"{quote(tab_title)}!{currency_cols(i)[0]}{TRIP_FIRST_ROW}:{currency_key_col(i)}"
 
 
 def grid(sheet_id: int, r0: int, r1: int | None, c0: int, c1: int) -> dict:
@@ -133,21 +141,29 @@ def month_and_trip_tabs(order: list[str], year: int, config: Config) -> tuple[li
     return months, trips
 
 
-def data_ranges(months: list[str], trips: list[str]) -> list[str]:
+def data_ranges(months: list[str], trips: list[str], config: Config | None = None) -> list[str]:
+    by_name = {t.name: t for t in (config.trips if config else [])}
     ranges = []
     for t in months:
         ranges += [f"{quote(t)}!A3:H", f"{quote(t)}!P3:U"]
     for t in trips:
         ranges += [f"{quote(t)}!A4:H", f"{quote(t)}!J4:N"]
+        trip = by_name.get(t)
+        ranges += [cash_range(t, i) for i in range(len(trip.currencies()) if trip else 0)]
     return ranges
+
+
+_CASH_STARTS = {currency_cols(i)[0]: i for i in range(MAX_CURRENCIES)}
 
 
 def locate(values: dict[str, list[list]]) -> dict[str, tuple[str, str, int, list]]:
     """key -> (quoted tab, "spend"/"earn"/"paid" (a trip's paid back to you), row number, row values)."""
     located = {}
     for rng, rows in values.items():
-        tab_q = rng.rsplit("!", 1)[0]
-        kind, key_index = ("earn", 5) if rng.endswith("!P3:U") else ("paid", 4) if rng.endswith("!J4:N") else ("spend", 7)
+        tab_q, part = rng.rsplit("!", 1)
+        cash = _CASH_STARTS.get(re.match(r"[A-Z]+", part).group())  # S, Z, AG ...: never A, J or P
+        kind, key_index = ("earn", 5) if rng.endswith("!P3:U") else ("paid", 4) if rng.endswith("!J4:N") else \
+            (f"cash{cash}", 6) if cash is not None else ("spend", 7)
         first = 3 if rng.endswith("3:H") or rng.endswith("3:U") else 4
         for i, r in enumerate(rows):
             if len(r) > key_index and r[key_index]:
@@ -181,7 +197,7 @@ def prepare(year: int, titles: list[str], tabs: list[Tab], config: Config, creat
         order.remove(p)
     months, trips = month_and_trip_tabs(order, year, config)
     widths = {t.name: trip_cols(t) for t in config.trips if t.name in order}
-    return Prepared(add, placeholder, order, new_tabs, data_ranges(months, trips), widths)
+    return Prepared(add, placeholder, order, new_tabs, data_ranges(months, trips, config), widths)
 
 
 def trip_cols(trip) -> int:
@@ -254,8 +270,14 @@ def finish(
             blocks.append(("earn", "P", "U", f"{q}!P3:U"))
         else:  # money in on a trip (moved there in the app) is paid back to you
             blocks.append(("earn", PAID_COLS[0], PAID_KEY, f"{q}!J4:N"))
+        cash_blocks = {}
+        if tab.kind == "trip" and tab.trip:  # rows in a trip's currency, in and out, in its block
+            for i, (code, _) in enumerate(tab.trip.currencies()):
+                cash_blocks[f"cash{i}"] = currency_code(code)
+                blocks.append((f"cash{i}", *BLOCKS[f"cash{i}"], cash_range(tab.title, i)))
         for kind, c0, c1, rng in blocks:
-            block = [r for r in fresh if r.kind == kind]
+            block = [r for r in fresh if (r.currency == cash_blocks[kind] if kind in cash_blocks
+                                          else r.kind == kind and not r.currency)]
             if not block:
                 continue
             existing = len(filled.get(rng, []))
@@ -263,7 +285,7 @@ def finish(
             min_rows[tab.title] = max(min_rows.get(tab.title, 0), start + len(block) - 1)
             data.append({
                 "range": f"{q}!{c0}{start}:{c1}{start + len(block) - 1}",
-                "values": [[cell(v) for v in (r.values() if c0 != PAID_COLS[0] else
+                "values": [[cell(v) for v in (r.values() if c0 != PAID_COLS[0] or r.currency else
                                               [r.date, r.item, r.amount, r.remarks, r.key])] for r in block],
             })
             remaining = existing - deleted.get((q, kind), 0) + len(block)
@@ -343,7 +365,7 @@ def fixed_in_sheet(row: AccountRow, found: tuple | None) -> bool:
         return False
     _, kind, _, values = found
     item = str(values[1]) if len(values) > 1 else ""
-    category = str(values[2]) if kind == "spend" and len(values) > 2 else ""
+    category = str(values[2]) if (kind == "spend" or kind.startswith("cash")) and len(values) > 2 else ""
     if "twin" in row.needs:
         return False  # only the card's Same / Different settles it
     ok = True
@@ -457,6 +479,7 @@ def format_requests(sheet_id: int, tab: Tab, config: Config) -> list[dict]:
             number(V, "0.000000", r0=8 + 4 * i, r1=9 + 4 * i),  # its rate
             dropdown(c[2], config.categories), dropdown(c[4], config.importance),
             column(c[1], pixelSize=200), fill(1, 3, c[0], c[-1], "cash"),
+            column(currency_key_col(i), hiddenByUser=True),
         ]
     if trip and trip.currencies():
         rc = received_cols(len(trip.currencies()))
@@ -612,6 +635,8 @@ def cards_from_values(rows: list[list]) -> list[dict]:
             "who": _get(r, 2), "statement": _get(r, 3), "recordedAs": _get(r, 4),
             "needsPurpose": "what it was for" in needs, "needsCategory": "Category" in needs,
             "twin": twin_text if twin_key else "", "twinKey": twin_key,
+            # A Splitwise row in a trip's currency: its amount is in that currency.
+            "currency": (m.group(1) if (m := re.search(r" · ([A-Z]{3}) [\d,]+\.\d\d$", _get(r, 3))) and m.group(1) != "MYR" else ""),
             "tab": _tab_title(r[6] if len(r) > 6 else ""), "key": _get(r, 7),
         })
     return cards
@@ -703,6 +728,8 @@ def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int])
     if not found:
         return None, []
     tab_q, kind, row, v = found
+    if kind.startswith("cash"):
+        raise ValueError("A row in a trip's own currency stays in that currency's block on the trip.")
     if kind == "spend":
         fields = {"kind": "spend", "date": as_date(v[0] if v else ""), "item": _get(v, 1), "category": _get(v, 2),
                   "amount": as_amount(_get(v, 3)), "importance": _get(v, 4), "source": _get(v, 5),

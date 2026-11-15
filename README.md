@@ -118,18 +118,32 @@ ONE"), dated by transaction date. The parsed charges are checked against the
 statement's "Total charges" and "Closing balance".
 
 Splitwise notes: your column is found by your name (your Google account
-name). What you paid is
-spending: expenses where your balance went up, and solo expenses where every
-balance is 0. Money paid back to you ("Bob paid Jane") is earnings; money you
-paid a friend is spending. Expenses someone else paid, and payments between
-other members, are left out. Amounts are converted to RM at the rate of the
-trip in that currency (set in Trips), so spending during the trip lands
-on the trip tab and repayments on the month tab. Remarks keep the original
-amount ("Lunch · JPY 4,000.00"), and Splitwise categories like Dining out
-fill Category. A later export of the same group only adds what's new. If
-the trip has no rate yet, the rest of the file still goes in and Upload asks
-for the rate: save it there to add those rows, or tap Later and upload the
-file again once the rate is set in Trips.
+name). Only your own money is recorded:
+- A bill you paid: the whole bill is spending.
+- A bill a friend paid: your portion is spending ("Pho (your share of
+  400,000.00)").
+- A solo expense (every balance 0) is yours.
+- A friend paying you back ("Bob paid Jane"): money in, the day it's paid
+  (recorded once if the DuitNow is on a statement too).
+- You paying a friend back ("Jane paid Bob"): not recorded, your portion is
+  already counted on their bill. A DuitNow that is the same money is left
+  out too (or, if it's already in your sheet, its card asks "Paying a friend
+  back?").
+- Payments between other members are left out.
+When you and a friend owe each other, Splitwise subtracts, so they pay you
+back less and your cost shows a little higher than it really was.
+
+Nothing is converted: the whole export goes on
+the tab of the trip in its currency, whatever the dates (bookings made before
+it, settling up after it). RM rows go in the RM blocks (money paid back to
+you in "paid back to you"); VND rows go in the trip's "Spending in VND" block
+in VND, with money paid back to you as a negative amount. The trip's rate is
+only used for its RM total. An export in RM only goes to the trip most of its
+rows fall in. Remarks keep the original amount ("Lunch · JPY 4,000.00"), and
+Splitwise categories like Dining out fill Category. A later export of the
+same group only adds what's new. Rows in a currency no trip has yet wait:
+the rest of the file goes in, and Upload says to add the trip, then upload
+the file again.
 
 A Splitwise row that is also on a statement (a dinner you paid by card, a
 repayment that came in by DuitNow) is recorded once. Same direction, within

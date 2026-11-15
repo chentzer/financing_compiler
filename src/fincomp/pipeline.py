@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from .accounts import AccountRow, Tab, _keyed, build_rows, plan
+from .accounts import AccountRow, Tab, _keyed, build_rows, foreign_currency, plan, trip_rate
 from .combine import TransferMatch, _key, dedupe, match_splitwise, match_transfers, sort_ledger
 from .config import Config
 from .models import Transaction
@@ -24,9 +24,9 @@ class FileResult:
     count: int = 0
     error: str = ""
     needs_password: str = ""  # parser name, when the PDF is locked
-    # Splitwise rows left out for a missing trip rate: [{"trip", "currency", "rows"}]
-    # ("trip" "" = no trip in that currency). The rest of the file is read.
-    needs_rate: list[dict] = field(default_factory=list)
+    # Splitwise rows left out because no trip has their currency:
+    # [{"currency", "rows"}]. The rest of the file is read.
+    needs_trip: list[dict] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -67,8 +67,8 @@ def parse_files(files: list[tuple[str, bytes]], config: Config) -> tuple[list[Tr
             results.append(FileResult(name, parser.label, parser.name, error=str(e)))
             continue
         missing = getattr(parser, "missing", {})
-        results.append(FileResult(name, parser.label, parser.name, count=len(found), needs_rate=[
-            {"trip": trip, "currency": code, "rows": n} for (trip, code), n in missing.items()]))
+        results.append(FileResult(name, parser.label, parser.name, count=len(found), needs_trip=[
+            {"currency": code, "rows": n} for code, n in missing.items()]))
         transactions.extend(found)
     return transactions, results
 
@@ -137,16 +137,30 @@ def settle_splitwise(
     both new: the Splitwise row goes, and the bank row takes its purpose and
     category. Both already in the sheet, or only a maybe: the Splitwise row's
     To Update card asks (returned as {key: "same as? ... #bank key"}), unless
-    you answered "Different" (Reviewed has "splitwise key~bank key")."""
+    you answered "Different" (Reviewed has "splitwise key~bank key").
+
+    Paying a friend back in Splitwise isn't recorded (your portion of their
+    bill is), so a DuitNow that is the same money is left out when new, or
+    its own card asks ("bank key~splitwise key" for Different). Money paid
+    back to you is recorded once, like any other match."""
     keys = {id(t): k for k, t in _keyed(transactions)}
     is_new = (lambda t: True) if fresh is None else (lambda t: _key(t) in fresh)
     removed: list[list] = []
     twins: dict[str, str] = {}
-    for m in match_splitwise(transactions):
+    for m in match_splitwise(transactions, lambda t: trip_rate(config.trips, foreign_currency(t), t.date)):
         s, b = m.splitwise, m.bank
         sk, bk = keys[id(s)], keys[id(b)]
         if sk in config.removed or bk in config.removed:
             continue  # settled before, or you took one out yourself
+        if s.reference == "settle" and s.internal:
+            # You paying a friend back: your portion is already counted, so the DuitNow isn't recorded.
+            if m.sure and is_new(b):
+                config.removed.add(bk)
+                removed.append(removed_row(bk, b.date.isoformat(), b.amount,
+                                           f"Settling up in Splitwise: {s.description}"[:120]))
+            elif f"{bk}~{sk}" not in config.reviewed:  # already in the sheet, or only a maybe: its card asks
+                twins[bk] = f"{s.date.isoformat()} Splitwise {s.description}"[:90] + f" #{sk}"
+            continue
         if m.sure and (is_new(s) or is_new(b)):
             lose, keep = (s, b) if is_new(s) else (b, s)
             if lose is s and not keep.purpose:
