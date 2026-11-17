@@ -73,7 +73,7 @@ export function Cards() {
 }
 
 function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDone(message: string, write: () => Promise<void>): void }) {
-  const { backend } = useData()
+  const { backend, changed } = useData()
   const needsPurpose = card.needs.includes('purpose')
   const needsCategory = card.needs.includes('category')
   const isSpend = card.kind === 'spend'
@@ -146,6 +146,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         if (complete) await backend.saveCard(card.key, answer)
         else await backend.keepAsIs(card.key)
         await backend.moveRow(card.key, to)
+        if (answer.sameForEvery) changed() // the new rule closed other cards too
       })
       return
     }
@@ -171,6 +172,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
       onDone(same ? `Saved, and added a rule for ${who}` : 'Saved', async () => {
         await keepTwin()
         await backend.saveCard(card.key, answer)
+        if (same) changed() // the new rule closed other cards too
       })
     } else if (what === 'skip') {
       onDone('Skipped: kept as recorded', async () => {

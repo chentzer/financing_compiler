@@ -222,12 +222,14 @@ export class PyodideBackend implements Backend {
   }
 
   /** Every month and trip tab's rows in a book, to find a row by key wherever it is. */
+  /** Rows to write by row number: always read fresh, since the sheet may have been edited
+   * elsewhere (Google Sheets, another device) since the cached read. */
   private async bookValues(book: Book, only?: string, render: Render = 'FORMULA'): Promise<{ values: Record<string, Values>; ids: Record<string, number> }> {
     await this.useSettings()
     const { tabs, ids } = await this.ids(book.id)
     const titles = only && only in ids ? [only] : tabs.map((t) => t.title)
     const ranges = await py<string[]>('book_ranges', [book.year, titles])
-    const vals = await this.g.read(book.id, ranges, render)
+    const vals = await this.g.read(book.id, ranges, render, true)
     return { values: Object.fromEntries(ranges.map((r, i) => [r, vals[i]])), ids }
   }
 
@@ -602,7 +604,7 @@ export class PyodideBackend implements Backend {
   private async sheetValues(name: string) {
     const at = await this.sheetBook(name)
     if (!at) throw new Error('That sheet has no tab yet.')
-    const vals = await this.g.read(at.book.id, at.ranges, 'FORMULA')
+    const vals = await this.g.read(at.book.id, at.ranges, 'FORMULA', true)
     return { at, values: Object.fromEntries(at.ranges.map((r, i) => [r, vals[i]])) }
   }
 
@@ -666,7 +668,7 @@ export class PyodideBackend implements Backend {
     const id = await this.settingsBook()
     const tab = (await this.g.tabs(id)).find((t) => t.title === 'Reviewed')
     if (!tab) return
-    const [keys] = await this.g.read(id, ["'Reviewed'!A2:A"], 'UNFORMATTED_VALUE')
+    const [keys] = await this.g.read(id, ["'Reviewed'!A2:A"], 'UNFORMATTED_VALUE', true)
     const rows = keys.map((r, i) => (s(r[0]) === key ? i + 2 : 0)).filter(Boolean).reverse()
     if (rows.length) await this.g.batch(id, await Promise.all(rows.map((r) => py<object>('remove_card', [tab.sheetId, r]))))
   }
@@ -711,7 +713,7 @@ export class PyodideBackend implements Backend {
   }
 
   private async removeCard(book: Book, key: string): Promise<void> {
-    const [keys] = await this.g.read(book.id, [`${quote(TO_UPDATE)}!H2:H`], 'UNFORMATTED_VALUE')
+    const [keys] = await this.g.read(book.id, [`${quote(TO_UPDATE)}!H2:H`], 'UNFORMATTED_VALUE', true)
     const i = keys.findIndex((r) => s(r[0]) === key)
     if (i >= 0) {
       const { ids } = await this.ids(book.id)
@@ -804,7 +806,7 @@ export class PyodideBackend implements Backend {
           Object.values(trip.cash).reduce((n, rows) => n + rows.length, 0)
         const book = (await this.book(trip.year))!
         const specs = await py<{ range: string }[]>('trip_extra_ranges', [name])
-        const now = await this.g.read(book.id, specs.map((x) => x.range), 'UNFORMATTED_VALUE')
+        const now = await this.g.read(book.id, specs.map((x) => x.range), 'UNFORMATTED_VALUE', true)
         const data = await py<Plan['data']>('trip_extras', [name, now, trip.paid, trip.cash, trip.received])
         if (data.length) await this.g.write(book.id, data, 'USER_ENTERED')
         added += data.reduce((n, d) => n + d.values.length, 0)
@@ -822,7 +824,7 @@ export class PyodideBackend implements Backend {
             tables: sh.tables.map((t) => ({ name: t.name, currency: t.currency, label: t.label })) })
         }
         const at = (await this.sheetBook(name))!
-        const vals = await this.g.read(at.book.id, at.ranges, 'UNFORMATTED_VALUE')
+        const vals = await this.g.read(at.book.id, at.ranges, 'UNFORMATTED_VALUE', true)
         for (const [i, t] of sh.tables.entries()) {
           total += t.rows.length
           const data = await py<Plan['data']>('custom_add_many', [name, i, vals[i] ?? [], t.rows])
@@ -985,7 +987,7 @@ export class PyodideBackend implements Backend {
       ...prep.delete.map((t) => ({ deleteSheet: { sheetId: tabs.find((x) => x.title === t)!.sheetId } })),
     ])
     if (changed) tabs = await this.g.tabs(book.id)
-    const vals = await this.g.read(book.id, prep.reads, 'FORMULA')
+    const vals = await this.g.read(book.id, prep.reads, 'FORMULA', true)
     const values = Object.fromEntries(prep.reads.map((r, i) => [r, vals[i]]))
     const fin = await finish(Object.fromEntries(tabs.map((t) => [t.title, t.sheetId])), values)
     await this.grow(book.id, fin.minRows ?? {})
@@ -1008,7 +1010,7 @@ export class PyodideBackend implements Backend {
       const [ranges, fn, args] = row.kind === 'earn'
         ? [await py<string[]>('paid_ranges', [target.title]), 'paid_row', [] as unknown[]]
         : [await py<string[]>('cash_ranges', [target.title, row.currency]), 'cash_row', [row.currency]]
-      const [vals] = await this.g.read(book.id, ranges, 'UNFORMATTED_VALUE')
+      const [vals] = await this.g.read(book.id, ranges, 'UNFORMATTED_VALUE', true)
       await this.g.write(book.id, await py<Plan['data']>(fn, [vals, target.title, fields, ...args]), 'USER_ENTERED')
       return
     }
