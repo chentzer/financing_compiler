@@ -162,11 +162,12 @@ def settle(day, amount):
                        reference="settle", internal=True, counterparty="Bob Lim", file="penang.csv")
 
 
-def test_a_new_duitnow_paying_a_friend_back_is_left_out():
-    config = Config()
+def test_a_new_duitnow_that_is_a_repayment_asks():
+    # It may be money back for a bill you count whole, so it's never taken out by itself.
     s, b = settle(8, -270.0), bank(9, -270.0, "DUITNOW BOB LIM", source="GX Bank")
-    out = pipeline.compile_transactions([s, b], config)
-    assert out.rows == [] and len(out.removed) == 1 and "Settling up" in out.removed[0][3]
+    out = pipeline.compile_transactions([s, b], Config())
+    (row,) = out.rows
+    assert row.source == "GX Bank" and row.needs[-1] == "twin" and out.removed == []
 
 
 def test_a_duitnow_already_recorded_gets_a_card():
@@ -186,9 +187,31 @@ def test_your_portion_never_matches_a_bank_row():
     assert match_splitwise([share, bank(5, -80.0)]) == []
 
 
-def test_money_paid_back_to_you_is_recorded_once():
+def test_money_paid_back_to_you_isnt_counted_your_share_is():
     back = Transaction(date=date(2026, 9, 8), source="Splitwise", account="penang", amount=270.0,
                        description="Bob L. paid Jane T. · MYR 270.00", purpose="Repayment", reference="settle",
-                       counterparty="Bob Lim", file="penang.csv")
+                       internal=True, counterparty="Bob Lim", file="penang.csv")
     out = pipeline.compile_transactions([back, bank(9, 270.0, "DUITNOW BOB LIM", source="GX Bank")], Config())
-    assert [(r.kind, r.amount) for r in out.rows] == [("earn", 270.0)] and len(out.removed) == 1
+    (row,) = out.rows
+    assert row.kind == "earn" and row.needs[-1] == "twin"  # Same takes it out: their share was never yours
+
+
+def test_the_card_charge_for_a_bill_you_paid_gives_way_to_your_share():
+    paid = Transaction(date=date(2026, 9, 5), source="Splitwise", account="penang", amount=-30.0,
+                       description="Dinner (you paid 120.00) · MYR 30.00", purpose="Dinner", reference="paid",
+                       file="penang.csv")
+    out = pipeline.compile_transactions([paid, bank(5, -120.0)], Config())
+    assert [(r.source, r.amount, r.remarks) for r in out.rows] == \
+        [("Splitwise", 30.0, "Dinner (you paid 120.00) · MYR 30.00")] and len(out.removed) == 1
+
+
+def test_a_bill_you_count_whole():
+    paid = Transaction(date=date(2026, 9, 5), source="Splitwise", account="penang", amount=-1154.4,
+                       description="Flight (you paid 5,772.00) · MYR 1,154.40", purpose="Flight", reference="paid",
+                       file="penang.csv")
+    config = Config()
+    (row,) = pipeline.compile_transactions([paid], config).rows
+    assert row.amount == 1154.4  # your share
+    config.reviewed.add(f"whole:{row.key}")
+    (again,) = pipeline.compile_transactions([paid], config).rows
+    assert (again.key, again.amount) == (row.key, 5772.0)  # same row, the whole bill

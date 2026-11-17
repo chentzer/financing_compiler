@@ -41,14 +41,16 @@ cd web; npm install; npm run dev           # demo data at localhost:5173
   in `parsers/__init__.py`. PDF parsers use only `pypdf` + `re`
   (`TextPdfParser`), so they run in a browser. TNG v1 is rebuilt from text
   positions; the older TNG v2 layout is refused. `splitwise.py` reads a Splitwise group export (stdlib
-  csv), only the user's own money (Transaction.reference): a bill the user
-  paid = full cost spent; a friend's bill = the user's portion ("share");
-  a friend paying back = money in when paid ("settle"); the user paying a
-  friend back = "settle", internal (not recorded, the portion already is),
-  used only to drop the matching DuitNow (`pipeline.settle_splitwise`;
-  Different = Reviewed "bank key~splitwise key"); never paired as transfers.
-  Known limit (user's choice): mutual debts netted by Splitwise make the
-  cost show higher by the netted amount. Never converted: a row in VND keeps its VND
+  csv), only the user's share of each bill (Transaction.reference), so a trip
+  equals Splitwise's "total spent": a bill the user paid = their share,
+  remark "(you paid <cost>)" ("paid"); a friend's bill = their share
+  ("share"); repayments both ways = "settle", internal, never recorded. A
+  card charge or DuitNow that is the same money as a "paid" bill or a
+  payment is left out (`pipeline.settle_splitwise`; Different = Reviewed
+  "bank key~splitwise key"); never paired as transfers. A "paid" bill can
+  count the whole bill instead (Trips screen, tap the bill: Reviewed
+  "whole:<key>", `accounts.WHOLE`, and the row's amount is rewritten); so
+  repayment DuitNows always get a card rather than being dropped. Never converted: a row in VND keeps its VND
   amount (Transaction.amount; `accounts.foreign_currency` reads the code from
   the description) and goes in the trip's VND block (money in as a negative
   amount), with its key in the hidden column after the block
@@ -206,4 +208,3 @@ rows, so a same-amount purchase can't take a transfer's partner.
 - Commits here use the GitHub noreply address
   (`109493984+chentzer@users.noreply.github.com`, set in this repo's git
   config), not the personal email: the repo is public.
-

@@ -216,6 +216,8 @@ export interface TripRow {
   source?: string
   remarks: string
   currency?: string
+  /** The row's hidden key; "" for a row typed in by hand. */
+  key?: string
 }
 
 export interface TripDetail {
@@ -372,6 +374,9 @@ export interface Backend {
   /** Latest trip dates first. */
   listTrips(): Promise<TripTotal[]>
   tripDetail(name: string): Promise<TripDetail>
+  /** A Splitwise bill you paid, on trip `trip`: count the whole bill (friends paid you back by bank) or
+   * only your share. Remembered for later uploads, and the row's amount is rewritten to `amount`. */
+  setWholeBill(trip: string, key: string, whole: boolean, amount: number): Promise<void>
   /** Add a trip, or change the one called `previousName` (a new name renames its tab). Its year can't change. */
   saveTrip(trip: Trip, previousName?: string): Promise<void>
   /** RM rows go back to their months. Returns how many rows stay on the tab (foreign money has no month). */

@@ -1,22 +1,20 @@
 """Splitwise group export (CSV: Date, Description, Category, Cost, Currency,
 then one balance column per member).
 
-A member's balance on a row is what they paid minus their share, so for you
-(Transaction.reference says which):
-- Expense, your balance > 0: you paid it -> spending of the full Cost.
-- Expense, your balance < 0: someone else paid -> spending of your portion
-  (your balance), "share".
+Only your share of each bill is spending, so the trip comes to what
+Splitwise says you spent. A member's balance on a row is what they paid
+minus their share, so for you (Transaction.reference says which):
+- Expense, your balance > 0: you paid it -> your share (Cost - balance),
+  "paid"; the remark says the whole bill ("Bbq (you paid 1,629,000.00)").
+- Expense, your balance < 0: someone else paid -> your share (-balance), "share".
 - Expense, every balance 0: a solo expense, taken as yours -> spending.
-- Payment to you ("X paid You"): money paid back to you -> earning, the day
-  it's paid ("settle").
-- Payment from you ("You paid X"): your portion is already counted on the
-  friend's bill, so it isn't recorded ("settle", internal); a DuitNow on a
-  statement that is the same money isn't either (pipeline.settle_splitwise).
+- Payments ("X paid You", "You paid X"): not recorded ("settle", internal):
+  your share is already counted, so paying back either way isn't spending
+  or earnings.
 - Payments between other members -> not read.
-
-shortcut: when you and a friend owe each other, Splitwise subtracts, so they
-pay you back less than they owed and your cost comes out higher by what was
-subtracted; the user chose this over per-item paid-back rows (Nov 2026).
+A bank row that is the same money as a bill you paid (the card charge) or
+a payment (the DuitNow) isn't recorded either, so only your share counts
+(pipeline.settle_splitwise).
 
 Amounts stay in the group's currency: a row in VND keeps its VND amount
 (Transaction.amount) and goes in the VND block of the trip in that currency
@@ -47,7 +45,7 @@ from .base import ParseError, Parser
 HEADER = ["Date", "Description", "Category", "Cost", "Currency"]
 SOURCE = "Splitwise"
 # Transaction.reference of each kind of Splitwise row ("" = something you paid in full).
-SHARE, SETTLE = "share", "settle"
+PAID, SHARE, SETTLE = "paid", "share", "settle"
 
 CATEGORY_MAP = {
     "dining out": "Food", "groceries": "Food", "liquor": "Food", "food and drink - other": "Food",
@@ -143,15 +141,13 @@ class SplitwiseParser(Parser):
                 if not mine:
                     continue  # between other members
                 other = next((m for m, b in others if (b > 0) == (mine < 0)), others[0][0] if others else "")
-                if mine < 0:  # paid back to you
-                    add(-mine, desc, "Repayment", SETTLE, other)
-                else:  # you paying a friend: your portion is already on their bill
-                    add(-mine, desc, "Paid back", SETTLE, other, internal=True)
-            elif mine > 0:  # you paid: the whole bill
-                add(-cost, desc, desc, "")
+                # Never recorded; kept (internal) so paying a friend back can drop its DuitNow.
+                add(-mine, desc, "Repayment" if mine < 0 else "Paid back", SETTLE, other, internal=True)
+            elif mine > 0:  # you paid: your share; the remark keeps the whole bill (to match the card charge)
+                add(mine - cost, f"{desc} (you paid {cost:,.2f})", desc, PAID)
             elif mine < 0:  # someone else paid: your portion
                 payer = max(others, key=lambda o: o[1])[0] if others else ""
-                add(mine, f"{desc} (your share of {cost:,.2f})", desc, SHARE, payer)
+                add(mine, desc, desc, SHARE, payer)
             elif not any(balances):
                 add(-cost, desc, desc, "")  # solo: taken as yours
         return out

@@ -4,7 +4,7 @@ import { dayMonth, newestFirst, rm, shortDate } from '../app/format'
 import { go, href } from '../app/router'
 import { CURRENCIES, currencyCode, rateToRm } from '../data/fx'
 import type { Trip as TripData, TripDetail, TripRow } from '../data/Backend'
-import { ErrorBox, Field, Loading, Sheet } from '../components/ui'
+import { Chips, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 
 /** Every trip with its total; tap one for its tab's blocks. Trips are added and changed here. */
 export function Trips({ trip }: { trip?: string }) {
@@ -61,6 +61,7 @@ function Trip({ name }: { name: string }) {
   const load = useLoad((b) => b.tripDetail(name), [name])
   const settings = useLoad((b) => b.getSettings())
   const [editing, setEditing] = useState(false)
+  const [bill, setBill] = useState<{ row: TripRow; whole: number; share: number; money(n: number): string }>()
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
   const t: TripDetail = load.data
@@ -106,11 +107,12 @@ function Trip({ name }: { name: string }) {
         )}
       </section>
       <div className="lists-pair">
-        <TripRows title="Spending (RM)" rows={t.rm} money={rm} />
+        <TripRows title="Spending (RM)" rows={t.rm} money={rm} onBill={(row, whole, share) => setBill({ row, whole, share, money: rm })} />
         <TripRows title="Paid back to you" rows={t.paid} money={rm} />
       </div>
       {t.currencies.map((c) => (
-        <TripRows key={c.code} title={`Spending in ${c.code}`} rows={c.rows} money={(n) => `${c.code} ${n.toLocaleString('en-MY')}`} />
+        <TripRows key={c.code} title={`Spending in ${c.code}`} rows={c.rows} money={(n) => `${c.code} ${n.toLocaleString('en-MY')}`}
+          onBill={(row, whole, share) => setBill({ row, whole, share, money: (n) => `${c.code} ${n.toLocaleString('en-MY')}` })} />
       ))}
       {t.received.length > 0 && (
         <TripRows
@@ -120,6 +122,7 @@ function Trip({ name }: { name: string }) {
         />
       )}
       <p className="muted small">To add or move rows, use + Add transaction or a row's Trip field on the Month screen.</p>
+      {bill && <BillSheet trip={name} {...bill} onClose={() => setBill(undefined)} />}
       {editing && trip && (
         <TripSheet trip={trip} taken={settings.data!.trips.map((x) => x.name).filter((n) => n !== name)} onClose={() => setEditing(false)} />
       )}
@@ -290,7 +293,41 @@ function TripSheet({ trip, taken, onClose }: { trip?: TripData; taken: string[];
   )
 }
 
-function TripRows({ title, rows, money }: { title: string; rows: TripRow[]; money(n: number, r: TripRow): string }) {
+/** A Splitwise bill you paid: its remark ends "(you paid 240.00) · MYR 60.00" (the whole bill, then your share). */
+const PAID_BILL = /\(you paid ([\d,]+\.\d\d)\) · [A-Z]{3} ([\d,]+\.\d\d)$/
+const num = (s: string) => Number(s.replace(/,/g, ''))
+
+/** Count a Splitwise bill you paid as your share, or as the whole bill (when friends paid you back by
+ * bank and those repayments are on the trip). */
+function BillSheet({ trip, row, whole, share, money, onClose }: {
+  trip: string; row: TripRow; whole: number; share: number; money(n: number): string; onClose(): void
+}) {
+  const { backend, later } = useData()
+  const now = row.amount === whole && whole !== share ? 'whole' : 'share'
+  function pick(v: 'share' | 'whole' | '') {
+    if (!v || v === now) return onClose()
+    const amount = v === 'whole' ? whole : share
+    later(v === 'whole' ? `Counting the whole bill, ${money(whole)}` : `Counting your share, ${money(share)}`,
+      () => backend.setWholeBill(trip, row.key!, v === 'whole', amount), () => {})
+    onClose()
+  }
+  return (
+    <Sheet title={row.item} onClose={onClose}>
+      <p className="small">
+        You paid {money(whole)} in Splitwise; your share is {money(share)}. Count the whole bill when your friends paid
+        you back by bank and those repayments are in "Paid back to you".
+      </p>
+      <Chips label="Count" options={['share', 'whole'] as const} value={now} onChange={pick}
+        names={{ share: `My share, ${money(share)}`, whole: `Whole bill, ${money(whole)}` }} />
+    </Sheet>
+  )
+}
+
+function TripRows({ title, rows, money, onBill }: {
+  title: string; rows: TripRow[]; money(n: number, r: TripRow): string
+  /** Tapping a Splitwise bill you paid: its whole bill and your share. */
+  onBill?(row: TripRow, whole: number, share: number): void
+}) {
   return (
     <section className="card flush">
       <h3 className="list-title">
@@ -300,9 +337,10 @@ function TripRows({ title, rows, money }: { title: string; rows: TripRow[]; mone
         <p className="muted pad">None.</p>
       ) : (
         <ul className="rows">
-          {newestFirst(rows).map((r, i) => (
-            <li key={i}>
-              <div className="row">
+          {newestFirst(rows).map((r, i) => {
+            const m = onBill && r.key ? PAID_BILL.exec(r.remarks) : null
+            const body = (
+              <>
                 <span className="row-date">{r.date ? dayMonth(r.date) : ''}</span>
                 <span className="row-main">
                   <span className="row-item">{r.item}</span>
@@ -313,9 +351,21 @@ function TripRows({ title, rows, money }: { title: string; rows: TripRow[]; mone
                   </span>
                 </span>
                 <span className="row-amt">{money(r.amount, r)}</span>
-              </div>
-            </li>
-          ))}
+              </>
+            )
+            return (
+              <li key={i}>
+                {m ? (
+                  <button type="button" className="row" onClick={() => onBill!(r, num(m[1]), num(m[2]))}
+                    aria-label={`${r.item}: choose your share or the whole bill`}>
+                    {body}
+                  </button>
+                ) : (
+                  <div className="row">{body}</div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

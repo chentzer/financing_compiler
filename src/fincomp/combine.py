@@ -116,6 +116,15 @@ def _foreign(t: Transaction) -> bool:
     return bool(m) and m.group(1) != "MYR"
 
 
+_PAID = re.compile(r"\(you paid ([\d,]+\.\d\d)\)")
+
+
+def paid_in_full(t: Transaction) -> float:
+    """What left (or reached) your account: a bill you paid in Splitwise moved its whole cost."""
+    m = _PAID.search(t.description) if t.reference == "paid" else None
+    return -float(m.group(1).replace(",", "")) if m else t.amount
+
+
 def match_splitwise(transactions: list[Transaction],
                     rate: Callable[[Transaction], float | None] = lambda t: None) -> list[SplitwiseMatch]:
     """Splitwise rows that are the same money as a bank or wallet row: what
@@ -130,11 +139,11 @@ def match_splitwise(transactions: list[Transaction],
 
     A foreign row's amount is in its own currency: `rate(t)` gives RM per
     1 (the trip's rate); a row with no rate isn't matched."""
-    rm = {id(t): (t.amount * r if (r := rate(t)) else None) if _foreign(t) else t.amount for t in transactions}
-    # What you paid in full, and settling up (paying a friend back is internal: not recorded, but the
-    # same money as a DuitNow). Your portion of a friend's bill never moved your money.
-    sw = sorted((t for t in transactions if t.source == SPLITWISE and rm[id(t)] and t.reference in ("", "settle")
-                 and (not t.internal or t.reference == "settle")), key=lambda t: t.date)
+    rm = {id(t): (v * r if (r := rate(t)) else None) if _foreign(t) else v for t in transactions for v in [paid_in_full(t)]}
+    # Rows that moved your money: a solo bill, a bill you paid (its whole cost), and payments either
+    # way (internal: not recorded, but the same money as a DuitNow). A friend's bill didn't.
+    sw = sorted((t for t in transactions if t.source == SPLITWISE and rm[id(t)] and t.reference != "share"),
+                key=lambda t: t.date)
     banks = [t for t in transactions if t.source != SPLITWISE and t.amount and not t.internal]
     used: set[int] = set()
     out: list[SplitwiseMatch] = []

@@ -139,10 +139,10 @@ def settle_splitwise(
     To Update card asks (returned as {key: "same as? ... #bank key"}), unless
     you answered "Different" (Reviewed has "splitwise key~bank key").
 
-    Paying a friend back in Splitwise isn't recorded (your portion of their
-    bill is), so a DuitNow that is the same money is left out when new, or
-    its own card asks ("bank key~splitwise key" for Different). Money paid
-    back to you is recorded once, like any other match."""
+    Only your share of a Splitwise bill counts: a card charge that is a bill
+    you paid is left out when new; a DuitNow that is a payment either way
+    always gets a card (Same = left out; Different = "bank key~splitwise
+    key" in Reviewed, kept: money back for a bill you count whole)."""
     keys = {id(t): k for k, t in _keyed(transactions)}
     is_new = (lambda t: True) if fresh is None else (lambda t: _key(t) in fresh)
     removed: list[list] = []
@@ -152,12 +152,13 @@ def settle_splitwise(
         sk, bk = keys[id(s)], keys[id(b)]
         if sk in config.removed or bk in config.removed:
             continue  # settled before, or you took one out yourself
-        if s.reference == "settle" and s.internal:
-            # You paying a friend back: your portion is already counted, so the DuitNow isn't recorded.
-            if m.sure and is_new(b):
+        if s.reference in ("paid", "settle"):
+            # A bill you paid, or paying back: only your share counts, so the bank row isn't recorded.
+            # A repayment always asks: it stays if it's for a bill you count whole (Different).
+            if m.sure and is_new(b) and s.reference == "paid":
                 config.removed.add(bk)
                 removed.append(removed_row(bk, b.date.isoformat(), b.amount,
-                                           f"Settling up in Splitwise: {s.description}"[:120]))
+                                           f"In Splitwise, only your share counts: {s.description}"[:120]))
             elif f"{bk}~{sk}" not in config.reviewed:  # already in the sheet, or only a maybe: its card asks
                 twins[bk] = f"{s.date.isoformat()} Splitwise {s.description}"[:90] + f" #{sk}"
             continue

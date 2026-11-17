@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from .accounts import (
     CURRENCY_START, PAID_COLS, SPEND_COLS, TRIP_FIRST_ROW,
-    YEAR_SUMMARY, col_letter, col_number, currency_cols, month_title, received_cols, trip_width,
+    YEAR_SUMMARY, col_letter, col_number, currency_cols, currency_key_col, month_title, received_cols, trip_width,
 )
 from .config import Trip
 from .sheetplan import as_amount, as_date, parse_summary, quote, summary_ranges
@@ -96,16 +96,17 @@ def trip_detail(trip: Trip, values: list[list]) -> dict:
         if _s(r, a + 1) or _s(r, a + 3):
             rm.append({"date": _iso(_v(r, a)), "item": _s(r, a + 1), "category": _s(r, a + 2),
                        "amount": as_amount(_s(r, a + 3)), "importance": _s(r, a + 4),
-                       "source": _s(r, a + 5), "remarks": _s(r, a + 6)})
+                       "source": _s(r, a + 5), "remarks": _s(r, a + 6), "key": _s(r, a + 7)})
         if _s(r, p + 1) or _s(r, p + 2):
             paid.append({"date": _iso(_v(r, p)), "item": _s(r, p + 1), "amount": as_amount(_s(r, p + 2)),
                          "remarks": _s(r, p + 3)})
 
     currencies = []
     for i, (code, rate) in enumerate(trip.currencies()):
-        c = [col_number(x) for x in currency_cols(i)]
+        c = [col_number(x) for x in currency_cols(i)] + [col_number(currency_key_col(i))]
         rows = [{"date": _iso(_v(r, c[0])), "item": _s(r, c[1]), "category": _s(r, c[2]),
-                 "amount": as_amount(_s(r, c[3])), "importance": _s(r, c[4]), "remarks": _s(r, c[5])}
+                 "amount": as_amount(_s(r, c[3])), "importance": _s(r, c[4]), "remarks": _s(r, c[5]),
+                 "key": _s(r, c[6])}
                 for r in values if _s(r, c[1]) or _s(r, c[3])]
         row = 8 + 4 * i
         sheet_rate = cell(row + 1, q)

@@ -92,7 +92,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   // A Splitwise row that may also be on a statement: answered first (Same / Different).
   const [different, setDifferent] = useState(false)
   const twinOpen = !!card.twin && !different
-  // A bank row that may be you paying a friend back in Splitwise (the card is the bank row's).
+  // A bank row that may be a Splitwise bill or payment, where only your share counts (the card is the bank row's).
   const settling = !!card.twin && card.source !== 'Splitwise'
   const twinOnly = !!card.twin && !needsPurpose && !needsCategory // nothing else to ask
   /** "Different" answered here: remembered along with whatever closes the card. */
@@ -120,7 +120,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
   async function act(what: 'save' | 'later' | 'notmine' | 'skip' | 'trip' | 'same' | 'different') {
     setError(undefined)
     if (what === 'same') {
-      onDone(settling ? 'Removed: your part is already counted in Splitwise'
+      onDone(settling ? 'Removed: only your share in Splitwise counts'
         : `Removed: the ${card.twin?.text.replace(/^\S+ /, '').split(' RM ')[0] || 'bank'} row is kept`, () => backend.notMine(card.key))
       return
     }
@@ -211,7 +211,7 @@ function CardForm({ card, onLater, onDone }: { card: Card; onLater(): void; onDo
         <div className="twin-box" role="group" aria-labelledby={`twin-${card.key}`}>
           <p id={`twin-${card.key}`}>
             {settling ? (
-              <><strong>Paying a friend back?</strong> This may be the same money as this Splitwise payment. Your part is already counted on their bill:</>
+              <><strong>In Splitwise?</strong> This may be the same money as this Splitwise row, where only your share counts:</>
             ) : (
               <><strong>Also on a statement?</strong> This Splitwise row may be the same money as:</>
             )}

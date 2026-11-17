@@ -46,6 +46,8 @@ const SEEDS: Seed[] = [
   { date: '2026-09-15', item: 'Ferry ticket', amount: 70, category: 'Transport', importance: 'Essential', source: 'TNG', trip: 'Penang Trip', statement: 'PENANG FERRY' },
   { date: '2026-09-15', item: 'Hotel', amount: 380, category: 'Bills', importance: 'Have to Have', source: 'AEON Credit', trip: 'Penang Trip', statement: 'AGODA *HOTEL' },
   { date: '2026-09-16', item: 'Char Kuey Teow', amount: 22, category: 'Food', importance: 'Nice to Have', source: 'TNG', trip: 'Penang Trip', statement: 'QR Payment HAWKER' },
+  { date: '2026-09-16', item: 'Seafood dinner', amount: 60, category: 'Food', source: 'Splitwise', trip: 'Penang Trip',
+    remarks: 'Seafood dinner (you paid 240.00) · MYR 60.00' },
   { date: '2026-09-18', item: '99 Speedmart', amount: 41.35, category: '', source: 'Maybank', needs: ['category'], statement: '99 SPEEDMART 1234' },
   { date: '2026-09-20', item: 'Transfer', amount: 300, remarks: 'To Siti Aminah', source: 'Maybank', needs: ['purpose', 'category'], statement: 'IBG TRANSFER SITI AMINAH', counterparty: 'SITI AMINAH' },
   { date: '2026-09-21', item: 'Clinic', amount: 85, category: 'Health', importance: 'Essential', source: 'Maybank', statement: 'KLINIK SEJAHTERA' },

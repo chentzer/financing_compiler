@@ -47,7 +47,7 @@ const STEPS: Step[] = [
   { route: { name: 'month' }, target: 'add-row', title: 'Add by hand',
     text: 'Add cash spending or anything a statement missed.' },
   { route: { name: 'trips' }, target: 'add-trip', title: 'Trips',
-    text: 'Each trip has its own page and total. Add one here; open a trip to change its dates, currencies and rates.' },
+    text: 'Each trip has its own page and total. Add one here; open a trip to change it, or tap a Splitwise bill you paid to count your share or the whole bill.' },
   { route: { name: 'investments' }, target: 'tab-sheets', title: 'Sheets',
     text: 'Your investments, and sheets of your own like ang pao.' },
   { route: { name: 'home' }, target: 'search', title: 'Search',

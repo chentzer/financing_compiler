@@ -118,20 +118,21 @@ ONE"), dated by transaction date. The parsed charges are checked against the
 statement's "Total charges" and "Closing balance".
 
 Splitwise notes: your column is found by your name (your Google account
-name). Only your own money is recorded:
-- A bill you paid: the whole bill is spending.
-- A bill a friend paid: your portion is spending ("Pho (your share of
-  400,000.00)").
+name). Only your share of each bill is spending, so a trip comes to what
+Splitwise says you spent:
+- A bill you paid: your share, with the whole bill in the remark
+  ("Bbq (you paid 1,629,000.00)").
+- A bill a friend paid: your share.
 - A solo expense (every balance 0) is yours.
-- A friend paying you back ("Bob paid Jane"): money in, the day it's paid
-  (recorded once if the DuitNow is on a statement too).
-- You paying a friend back ("Jane paid Bob"): not recorded, your portion is
-  already counted on their bill. A DuitNow that is the same money is left
-  out too (or, if it's already in your sheet, its card asks "Paying a friend
-  back?").
+- Repayments either way aren't recorded: your share is already counted.
+  The card charge for a bill you paid is left out too. A DuitNow that is a
+  repayment gets an "In Splitwise?" card: Same leaves it out, Different
+  keeps it.
+- Whole bill instead: on the trip, tap a bill you paid and pick "Whole
+  bill" (e.g. a flight your friends paid you back for by bank before the
+  trip). Keep their DuitNows (Different on the card, then move them to the
+  trip) so they come off in "Paid back to you".
 - Payments between other members are left out.
-When you and a friend owe each other, Splitwise subtracts, so they pay you
-back less and your cost shows a little higher than it really was.
 
 Nothing is converted: the whole export goes on
 the tab of the trip in its currency, whatever the dates (bookings made before

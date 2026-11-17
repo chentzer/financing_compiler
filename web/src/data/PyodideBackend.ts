@@ -650,13 +650,33 @@ export class PyodideBackend implements Backend {
   }
 
   /** A Settings › Reviewed row: the card (or the question, for "key~twin") doesn't come back. */
-  private async remember(key: string, card: Card): Promise<void> {
+  private async remember(key: string, card: Pick<Card, 'date' | 'amount' | 'statement'>): Promise<void> {
     const id = await this.settingsBook()
     if (!(await this.g.tabs(id)).some((t) => t.title === 'Reviewed')) {
       await this.g.batch(id, [{ addSheet: { properties: { title: 'Reviewed', gridProperties: { rowCount: 500, columnCount: 4 } } } }])
       await this.g.write(id, [{ range: "'Reviewed'!A1", values: [['Key', 'Date', 'Amount (RM)', 'Statement']] }], 'RAW')
     }
     await this.g.append(id, "'Reviewed'!A:D", [await py<unknown[]>('reviewed_row', [key, card])])
+  }
+
+  /** Takes "key" rows off Settings › Reviewed (bottom up, so the row numbers stay right). */
+  private async forget(key: string): Promise<void> {
+    const id = await this.settingsBook()
+    const tab = (await this.g.tabs(id)).find((t) => t.title === 'Reviewed')
+    if (!tab) return
+    const [keys] = await this.g.read(id, ["'Reviewed'!A2:A"], 'UNFORMATTED_VALUE')
+    const rows = keys.map((r, i) => (s(r[0]) === key ? i + 2 : 0)).filter(Boolean).reverse()
+    if (rows.length) await this.g.batch(id, await Promise.all(rows.map((r) => py<object>('remove_card', [tab.sheetId, r]))))
+  }
+
+  async setWholeBill(trip: string, key: string, whole: boolean, amount: number): Promise<void> {
+    const t = (await this.getSettings()).trips.find((x) => x.name === trip)
+    const b = t && (await this.book(+t.start.slice(0, 4)))
+    if (!b) throw new Error(`No sheet for "${trip}" yet.`)
+    // The choice first, so a later upload agrees with the sheet even if the amount write fails.
+    if (whole) await this.remember(`whole:${key}`, { date: '', amount, statement: `Whole bill on ${trip}` })
+    else await this.forget(`whole:${key}`)
+    await this.writeFields({ book: b, tab: trip, trip: true }, key, { amount: String(amount) })
   }
 
   async skipCard(key: string): Promise<void> {

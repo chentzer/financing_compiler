@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .config import Config, Trip, currency_code
+from .combine import paid_in_full
 from .models import Transaction
 
 FIRST_ROW = 3  # month tabs: rows 1-2 are headers
@@ -152,6 +153,9 @@ def find_trip(trips: list[Trip], t: Transaction, rule: dict, groups: dict[str, s
 
 
 SPLITWISE = "Splitwise"
+# Settings › Reviewed "whole:<key>": a Splitwise bill you paid counts the whole bill, not your share
+# (friends paid you back by bank, and those repayments are on the trip).
+WHOLE = "whole:"
 _CURRENCY = re.compile(r" · ([A-Z]{3}) [\d,]+\.\d\d$")  # Splitwise remarks end "· VND 400,000.00"
 
 
@@ -298,7 +302,7 @@ def build_rows(
                 kind=kind,
                 date=t.date,
                 item=item,
-                amount=round(abs(t.amount), 2),
+                amount=round(abs(paid_in_full(t) if f"{WHOLE}{key}" in config.reviewed else t.amount), 2),
                 remarks=answer.get("remarks") or rule.get("remarks") or t.description,
                 key=key,
                 who=who,

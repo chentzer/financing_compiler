@@ -121,7 +121,7 @@ export class MockBackend implements Backend {
     const total = sum(rows)
     return {
       name, start: trip.start, end: trip.end, total, spentRm: total, paidBack: 0,
-      rm: rows.map((r) => ({ date: r.date, item: r.item, amount: r.amount, category: r.category, importance: r.importance, source: r.source, remarks: r.remarks })),
+      rm: rows.map((r) => ({ date: r.date, item: r.item, amount: r.amount, category: r.category, importance: r.importance, source: r.source, remarks: r.remarks, key: r.key })),
       paid: [],
       currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate, spent: 0, rm: 0, rows: [] })),
       received: [],
@@ -350,6 +350,12 @@ export class MockBackend implements Backend {
         this.s.cards.delete(other.key)
       }
     }
+  }
+
+  async setWholeBill(_trip: string, key: string, _whole: boolean, amount: number): Promise<void> {
+    await wait()
+    const row = this.s.rows.find((r) => r.key === key)
+    if (row) row.amount = amount
   }
 
   async keepBoth(key: string, _twinKey: string, close: boolean): Promise<void> {
