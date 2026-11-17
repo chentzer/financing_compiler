@@ -18,7 +18,9 @@ export function Cards() {
   /** Show the next card now; write this one's answer behind it (with Undo). */
   function done(card: Card, message: string, write: () => Promise<void>) {
     setGone((g) => [...g, card.key])
-    later(message, write, () => setGone((g) => g.filter((k) => k !== card.key)))
+    const show = () => setGone((g) => g.filter((k) => k !== card.key))
+    // A write that fails brings its card back, so the screen and the badge stay true.
+    later(message, () => write().catch((e) => { show(); throw e }), show)
   }
 
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />

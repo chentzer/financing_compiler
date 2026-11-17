@@ -69,7 +69,9 @@ function Shell({ account, demo }: { account: React.ReactNode; demo: boolean }) {
   const route = useRoute()
   useEffect(() => listenForShares(), []) // files shared to FinMerge open Upload and upload
   const cards = useLoad((b) => b.listCards())
-  const open = cards.data?.length ?? 0
+  // Cards answered on To Update are hidden at once (their answer is written a few seconds later).
+  const [gone] = useStored<string[]>('cards.gone', [])
+  const open = cards.data?.filter((c) => !gone.includes(c.key)).length ?? 0
 
   // Upload's progress shows on its tab, wherever you are.
   const [busy] = useStored('upload.busy', false)
