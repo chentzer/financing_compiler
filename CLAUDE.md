@@ -111,7 +111,9 @@ numpy, camelot, openpyxl and gspread.
   coloured. Source = bank/wallet; Remarks starts as the statement text.
 - Trip tabs (the user's 2025 trip sheets): RM spending A-G (key in H), paid
   back to you (RM) J-M (key in N), summary P-Q with the trip total in Q4 =
-  RM spent + each currency x its rate - paid back; then one spending block
+  RM spent + each currency x its rate - paid back (each block's sum skips
+  rows whose Remarks start "Not counted", toggled on the Trips screen:
+  `sheetplan.row_counted`); then one spending block
   per currency from S (Trip.currency + Trip.extra, each with its rate), then
   money received in other currencies. Month X5 = trips ending that month,
   Final (X6) subtracts it. Trips are added and changed on the Trips screen,

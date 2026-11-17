@@ -132,6 +132,10 @@ Splitwise says you spent:
   bill" (e.g. a flight your friends paid you back for by bank before the
   trip). Keep their DuitNows (Different on the card, then move them to the
   trip) so they come off in "Paid back to you".
+- Only repayments for a whole bill should come off the trip. Tap any trip
+  row (spending or paid back) to count it in the trip total or not; one
+  that isn't counted has "Not counted" at the start of its Remarks and a ⊘
+  next to its amount.
 - Payments between other members are left out.
 
 Nothing is converted: the whole export goes on

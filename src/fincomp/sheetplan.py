@@ -745,6 +745,41 @@ def take_row(key: str, values: dict[str, list[list]], sheet_ids: dict[str, int])
     return fields, [remove_row_request(ids[tab_q], kind, row)]
 
 
+def row_counted(values: dict[str, list[list]], tab_title: str, block: str, row: dict, counted: bool) -> list[dict]:
+    """Count a trip row in the total, or not: its Remarks start with "Not
+    counted" when it isn't, and the block's summary cell gets the formula that
+    skips those (for tabs made before it). `block`: "spend", "paid" or
+    "cash<i>"; `values` as read (data_ranges). The row is found by key, or
+    (typed in by hand) by date, item and amount. [] if it's gone."""
+    from .accounts import NOT_COUNTED, trip_block_cols, trip_sum_cell, trip_sum_formula
+
+    q = quote(tab_title)
+    rng = {"spend": f"{q}!A4:H", "paid": f"{q}!J4:N"}.get(block) or cash_range(tab_title, int(block[4:]))
+    rows = values.get(rng) or []
+    first = col_number({"spend": "A", "paid": PAID_COLS[0]}.get(block) or currency_cols(int(block[4:]))[0])
+    item_i, amount_i, remarks_i = (col_number(c) - first for c in trip_block_cols(block))
+    key_i = remarks_i + 1  # every trip block's hidden key follows its Remarks
+
+    def same(v: list) -> bool:
+        if row.get("key"):
+            return _get(v, key_i).strip() == row["key"]
+        day = as_date(v[0] if v else "")
+        return (not _get(v, key_i).strip() and _get(v, item_i).strip() == row.get("item", "")
+                and as_amount(_get(v, amount_i)) == as_amount(row.get("amount"))
+                and (day.isoformat() if day else "") == (row.get("date") or "")[:10])
+
+    i = next((i for i, v in enumerate(rows) if same(v)), None)
+    if i is None:
+        return []
+    remarks = _get(rows[i], remarks_i).strip()
+    if remarks.startswith(NOT_COUNTED):
+        remarks = remarks[len(NOT_COUNTED):].lstrip(" ·:-")
+    if not counted:
+        remarks = f"{NOT_COUNTED} · {remarks}" if remarks else NOT_COUNTED
+    return [{"range": f"{q}!{trip_block_cols(block)[2]}{TRIP_FIRST_ROW + i}", "values": [[remarks]]},
+            {"range": f"{q}!{trip_sum_cell(block)}", "values": [[trip_sum_formula(block)]]}]
+
+
 def cash_row(values: list[list], tab_title: str, fields: dict, index: int = 0) -> list[dict]:
     """Spending in one of the trip's currencies (block `index`): written under its last row."""
     row = TRIP_FIRST_ROW + len(values)

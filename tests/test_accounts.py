@@ -120,9 +120,12 @@ def test_trip_layout_matches_japan_sheet():
     # The yen spending block starts at S; money received in other currencies after it.
     assert cells["S2"] == "Spending in Yen" and cells["V3"] == "Amount (Yen)"
     assert [cells[f"{c}3"] for c in ("Z", "AA", "AB", "AC", "AD")] == ["Date", "Item", "Currency", "Amount", "Remarks"]
-    # Money Exchange is paid in RM but spent as yen, so it isn't counted twice.
-    assert cells["Q5"] == '=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
-    assert cells["Q6"] == "=SUM($L$4:$L)" and cells["Q8"] == "=SUM($V$4:$V)" and cells["Q10"] == "=Q8*Q9"
+    # Money Exchange is paid in RM but spent as yen, so it isn't counted twice; rows marked
+    # Not counted are left out of every block.
+    assert cells["Q5"] == ('=SUM($D$4:$D)-SUMIF($B$4:$B,"Money Exchange",$D$4:$D)'
+                           '-SUMIFS($D$4:$D,$G$4:$G,"Not counted*",$B$4:$B,"<>Money Exchange")')
+    assert cells["Q6"] == '=SUM($L$4:$L)-SUMIF($M$4:$M,"Not counted*",$L$4:$L)'
+    assert cells["Q8"] == '=SUM($V$4:$V)-SUMIF($X$4:$X,"Not counted*",$V$4:$V)' and cells["Q10"] == "=Q8*Q9"
     assert cells["Q4"] == "=Q5-Q6+Q10"  # what you really paid
     domestic = trip_layout(Trip("Penang", date(2026, 1, 1), date(2026, 1, 3)), Config(), open_ended=True)
     assert domestic["Q4"] == "=Q5-Q6" and "S2" not in domestic
@@ -281,3 +284,25 @@ def test_to_update_tab_is_grown_before_it_is_written_and_cleared(fake):
     assert fake.sheets["2026 Accounts"].cleared == [f"'To Update'!A{len(table['values']) + 1}:H"]
     assert done.min_rows["To Update"] == len(table["values"])
     assert done.min_rows["July 2026"] >= 3  # and the month tabs rows are added to
+
+
+def test_a_trip_row_can_be_left_out_of_the_total():
+    from fincomp.sheetplan import row_counted
+    paid = [[46281, "Bob Lim", 60, "Seafood dinner", ""], [46282, "Jane Tan", 44.02, "", "m-abc"]]
+    values = {"'Penang Trip'!J4:N": paid}
+    # Typed in by hand (no key): found by date, name and amount; its remark keeps what it said.
+    bob = {"date": "2026-09-16", "item": "Bob Lim", "amount": 60}
+    out = row_counted(values, "Penang Trip", "paid", bob, False)
+    assert out[0] == {"range": "'Penang Trip'!M4", "values": [["Not counted · Seafood dinner"]]}
+    assert out[1]["range"] == "'Penang Trip'!Q6" and "Not counted*" in out[1]["values"][0][0]
+    paid[0][3] = "Not counted · Seafood dinner"
+    assert row_counted(values, "Penang Trip", "paid", bob, True)[0]["values"] == [["Seafood dinner"]]
+    assert row_counted(values, "T", "paid", {"key": "m-abc"}, False) == []  # another tab's rows
+    # RM spending (by key, remark in G, Q5) and a currency block (remark in X, Q8).
+    values = {"'T'!A4:H": [[46281, "Hotel", "Bills", 380, "", "TNG", "", "k1"]],
+              "'T'!S4:Y": [[46281, "Pho", "Food", 80000, "", "Pho", "k2"]]}
+    out = row_counted(values, "T", "spend", {"key": "k1"}, False)
+    assert [o["range"] for o in out] == ["'T'!G4", "'T'!Q5"] and out[0]["values"] == [["Not counted"]]
+    out = row_counted(values, "T", "cash0", {"key": "k2"}, False)
+    assert [o["range"] for o in out] == ["'T'!X4", "'T'!Q8"] and out[0]["values"] == [["Not counted · Pho"]]
+    assert row_counted(values, "T", "spend", {"item": "Nobody", "amount": 1, "date": ""}, False) == []

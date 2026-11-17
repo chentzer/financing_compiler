@@ -21,6 +21,8 @@ import {
   type VaultState,
   type Trip,
   type TripDetail,
+  type TripBlock,
+  type TripRow,
   type TripTotal,
   type UploadProgress,
   type YearSummary,
@@ -118,11 +120,14 @@ export class MockBackend implements Backend {
     const trip = this.s.settings.trips.find((t) => t.name === name)
     if (!trip) throw new Error(`No trip called "${name}" in Trips.`)
     const rows = this.s.rows.filter((r) => r.trip === name && r.kind === 'spend')
-    const total = sum(rows)
+    const spent = sum(rows.filter((r) => !r.remarks.startsWith('Not counted')))
+    const paid = this.paid[name] ?? []
+    const paidBack = paid.filter((p) => !p.remarks.startsWith('Not counted')).reduce((a, p) => a + p.amount, 0)
+    const total = spent - paidBack
     return {
-      name, start: trip.start, end: trip.end, total, spentRm: total, paidBack: 0,
+      name, start: trip.start, end: trip.end, total, spentRm: spent, paidBack,
       rm: rows.map((r) => ({ date: r.date, item: r.item, amount: r.amount, category: r.category, importance: r.importance, source: r.source, remarks: r.remarks, key: r.key })),
-      paid: [],
+      paid: clone(paid),
       currencies: trip.currencies.map((c) => ({ code: c.code, rate: c.rate, spent: 0, rm: 0, rows: [] })),
       received: [],
     }
@@ -350,6 +355,21 @@ export class MockBackend implements Backend {
         this.s.cards.delete(other.key)
       }
     }
+  }
+
+  /** "Paid back to you" rows per trip (demo: a friend's part of the seafood dinner). */
+  private paid: Record<string, TripRow[]> = {
+    'Penang Trip': [{ date: '2026-09-16', item: 'Bob Lim', amount: 180, remarks: 'Seafood dinner', key: '' }],
+  }
+
+  async setRowCounted(trip: string, block: TripBlock, row: TripRow, counted: boolean): Promise<void> {
+    await wait()
+    const rows: { date?: string; item: string; amount: number; remarks: string; key?: string }[] =
+      block === 'paid' ? this.paid[trip] ?? [] : block === 'spend' ? this.s.rows.filter((r) => r.trip === trip && r.kind === 'spend') : []
+    const p = rows.find((x) => (row.key ? x.key === row.key : x.date === row.date && x.item === row.item && x.amount === row.amount))
+    if (!p) throw new Error('That row changed in the sheet. Reload and try again.')
+    const rest = p.remarks.replace(/^Not counted( · )?/, '')
+    p.remarks = counted ? rest : rest ? `Not counted · ${rest}` : 'Not counted'
   }
 
   async setWholeBill(_trip: string, key: string, _whole: boolean, amount: number): Promise<void> {

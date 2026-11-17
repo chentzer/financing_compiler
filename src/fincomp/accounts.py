@@ -520,6 +520,38 @@ def trip_width(trip: Trip) -> int:
     return CURRENCY_START + n * (len(CASH_HEADERS) + 1) + (len(RECEIVED_HEADERS) + 1 if n else 0)
 
 
+# A trip row whose Remarks start with this is left out of the trip total (e.g. money back for a
+# bill that already counts only your share).
+NOT_COUNTED = "Not counted"
+
+
+def trip_block_cols(block: str) -> tuple[str, str, str]:
+    """Item, Amount and Remarks columns of a trip block: "spend" (RM), "paid" (paid back to
+    you) or "cash<i>" (the i-th currency)."""
+    if block == "spend":
+        return SPEND_COLS[1], SPEND_COLS[3], SPEND_COLS[6]
+    if block == "paid":
+        return PAID_COLS[1], PAID_COLS[2], PAID_COLS[3]
+    c = currency_cols(int(block[4:]))
+    return c[1], c[3], c[5]
+
+
+def trip_sum_cell(block: str) -> str:
+    """The summary cell adding up a trip block (Q5, Q6, Q8, Q12...)."""
+    row = 5 if block == "spend" else 6 if block == "paid" else 8 + 4 * int(block[4:])
+    return f"{TRIP_SUMMARY_COLS[1]}{row}"
+
+
+def trip_sum_formula(block: str, open_ended: bool = True) -> str:
+    """A trip block's total, leaving out rows marked Not counted (and, for RM spending,
+    Money Exchange: RM changed into the trip's currency)."""
+    items, amounts, remarks = (_rng(c, TRIP_FIRST_ROW, open_ended) for c in trip_block_cols(block))
+    if block != "spend":
+        return f'=SUM({amounts})-SUMIF({remarks},"{NOT_COUNTED}*",{amounts})'
+    return (f'=SUM({amounts})-SUMIF({items},"{MONEY_EXCHANGE}",{amounts})'
+            f'-SUMIFS({amounts},{remarks},"{NOT_COUNTED}*",{items},"<>{MONEY_EXCHANGE}")')
+
+
 def trip_layout(trip: Trip, config: Config, open_ended: bool) -> dict[str, object]:
     """Headings and summary of a trip tab, laid out like the 2025 trip sheets:
     RM spending, what friends paid you back, then a spending block per
@@ -539,15 +571,13 @@ def trip_layout(trip: Trip, config: Config, open_ended: bool) -> dict[str, objec
     cells[f"{PAID_KEY}3"] = "Key"
 
     L, V = TRIP_SUMMARY_COLS
-    rm = _rng("D", r, open_ended)
-    items = _rng("B", r, open_ended)
     cells[f"{L}3"] = "Summary"
     cells[f"{V}3"] = "RM"
     cells[f"{L}4"] = "Trip Total (RM)"
     cells[f"{L}5"] = "Spent in RM"
-    cells[f"{V}5"] = f'=SUM({rm})-SUMIF({items},"{MONEY_EXCHANGE}",{rm})'
     cells[f"{L}6"] = "Paid back to you"
-    cells[f"{V}6"] = f"=SUM({_rng(PAID_COLS[2], r, open_ended)})"
+    for block in ("spend", "paid", *(f"cash{i}" for i in range(len(trip.currencies())))):
+        cells[trip_sum_cell(block)] = trip_sum_formula(block, open_ended)
 
     in_rm = []
     for i, (cur, rate) in enumerate(trip.currencies()):
@@ -557,7 +587,6 @@ def trip_layout(trip: Trip, config: Config, open_ended: bool) -> dict[str, objec
             cells[f"{col}3"] = f"Amount ({cur})" if h == "Amount" else h
         row = 8 + 4 * i
         cells[f"{L}{row}"] = f"Spent in {cur}"
-        cells[f"{V}{row}"] = f"=SUM({_rng(c[3], r, open_ended)})"
         cells[f"{L}{row + 1}"] = f"RM per 1 {cur}"
         cells[f"{V}{row + 1}"] = rate if rate else ""
         cells[f"{L}{row + 2}"] = f"{cur} spending in RM"

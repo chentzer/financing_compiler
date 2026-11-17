@@ -99,7 +99,7 @@ def trip_detail(trip: Trip, values: list[list]) -> dict:
                        "source": _s(r, a + 5), "remarks": _s(r, a + 6), "key": _s(r, a + 7)})
         if _s(r, p + 1) or _s(r, p + 2):
             paid.append({"date": _iso(_v(r, p)), "item": _s(r, p + 1), "amount": as_amount(_s(r, p + 2)),
-                         "remarks": _s(r, p + 3)})
+                         "remarks": _s(r, p + 3), "key": _s(r, p + 4)})
 
     currencies = []
     for i, (code, rate) in enumerate(trip.currencies()):

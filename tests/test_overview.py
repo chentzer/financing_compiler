@@ -43,7 +43,7 @@ def test_trip_detail_blocks():
     out = overview.trip_detail(trip, [r4, r5, r6, list(row), r8, r9, r10])
     assert (out["total"], out["spentRm"], out["paidBack"]) == (455, 340, 15)
     assert out["rm"][0]["item"] == "Hotel" and out["rm"][0]["date"] == "2026-06-20"
-    assert out["paid"] == [{"date": "2026-06-22", "item": "Bob Lim", "amount": 15, "remarks": ""}]
+    assert out["paid"] == [{"date": "2026-06-22", "item": "Bob Lim", "amount": 15, "remarks": "", "key": ""}]
     (idr,) = out["currencies"]
     assert (idr["code"], idr["rate"], idr["spent"], idr["rm"]) == ("IDR", 0.00026, 500000, 130)
     assert [r["item"] for r in idr["rows"]] == ["Car Rental"]

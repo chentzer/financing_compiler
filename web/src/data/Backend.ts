@@ -220,6 +220,9 @@ export interface TripRow {
   key?: string
 }
 
+/** A trip tab's block: RM spending, paid back to you, or the i-th currency's spending. */
+export type TripBlock = 'spend' | 'paid' | `cash${number}`
+
 export interface TripDetail {
   name: string
   start: string
@@ -377,6 +380,9 @@ export interface Backend {
   /** A Splitwise bill you paid, on trip `trip`: count the whole bill (friends paid you back by bank) or
    * only your share. Remembered for later uploads, and the row's amount is rewritten to `amount`. */
   setWholeBill(trip: string, key: string, whole: boolean, amount: number): Promise<void>
+  /** A row on trip `trip` in the trip total or not (its Remarks then start with "Not counted").
+   * Found by key, or by date, item and amount if typed in by hand. */
+  setRowCounted(trip: string, block: TripBlock, row: TripRow, counted: boolean): Promise<void>
   /** Add a trip, or change the one called `previousName` (a new name renames its tab). Its year can't change. */
   saveTrip(trip: Trip, previousName?: string): Promise<void>
   /** RM rows go back to their months. Returns how many rows stay on the tab (foreign money has no month). */

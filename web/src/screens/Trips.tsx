@@ -3,7 +3,7 @@ import { errorText, useData, useLoad } from '../app/context'
 import { dayMonth, newestFirst, rm, shortDate } from '../app/format'
 import { go, href } from '../app/router'
 import { CURRENCIES, currencyCode, rateToRm } from '../data/fx'
-import type { Trip as TripData, TripDetail, TripRow } from '../data/Backend'
+import type { Trip as TripData, TripBlock, TripDetail, TripRow } from '../data/Backend'
 import { Chips, ErrorBox, Field, Loading, Sheet } from '../components/ui'
 
 /** Every trip with its total; tap one for its tab's blocks. Trips are added and changed here. */
@@ -61,7 +61,7 @@ function Trip({ name }: { name: string }) {
   const load = useLoad((b) => b.tripDetail(name), [name])
   const settings = useLoad((b) => b.getSettings())
   const [editing, setEditing] = useState(false)
-  const [bill, setBill] = useState<{ row: TripRow; whole: number; share: number; money(n: number): string }>()
+  const [sel, setSel] = useState<{ block: TripBlock; row: TripRow; money(n: number): string; bill?: { whole: number; share: number } }>()
   if (load.error) return <ErrorBox message={load.error} retry={load.reload} />
   if (!load.data) return <Loading />
   const t: TripDetail = load.data
@@ -107,12 +107,13 @@ function Trip({ name }: { name: string }) {
         )}
       </section>
       <div className="lists-pair">
-        <TripRows title="Spending (RM)" rows={t.rm} money={rm} onBill={(row, whole, share) => setBill({ row, whole, share, money: rm })} />
-        <TripRows title="Paid back to you" rows={t.paid} money={rm} />
+        <TripRows title="Spending (RM)" rows={t.rm} money={rm} bills onRow={(row, bill) => setSel({ block: 'spend', row, bill, money: rm })} />
+        <TripRows title="Paid back to you" rows={t.paid} money={rm} onRow={(row) => setSel({ block: 'paid', row, money: rm })}
+          note="Only count repayments for bills set to Whole bill: a bill that counts your share already leaves out what friends owe you. Tap a row to count it or not." />
       </div>
-      {t.currencies.map((c) => (
-        <TripRows key={c.code} title={`Spending in ${c.code}`} rows={c.rows} money={(n) => `${c.code} ${n.toLocaleString('en-MY')}`}
-          onBill={(row, whole, share) => setBill({ row, whole, share, money: (n) => `${c.code} ${n.toLocaleString('en-MY')}` })} />
+      {t.currencies.map((c, i) => (
+        <TripRows key={c.code} title={`Spending in ${c.code}`} rows={c.rows} money={(n) => `${c.code} ${n.toLocaleString('en-MY')}`} bills
+          onRow={(row, bill) => setSel({ block: `cash${i}`, row, bill, money: (n) => `${c.code} ${n.toLocaleString('en-MY')}` })} />
       ))}
       {t.received.length > 0 && (
         <TripRows
@@ -122,7 +123,7 @@ function Trip({ name }: { name: string }) {
         />
       )}
       <p className="muted small">To add or move rows, use + Add transaction or a row's Trip field on the Month screen.</p>
-      {bill && <BillSheet trip={name} {...bill} onClose={() => setBill(undefined)} />}
+      {sel && <RowSheet trip={name} {...sel} onClose={() => setSel(undefined)} />}
       {editing && trip && (
         <TripSheet trip={trip} taken={settings.data!.trips.map((x) => x.name).filter((n) => n !== name)} onClose={() => setEditing(false)} />
       )}
@@ -297,48 +298,74 @@ function TripSheet({ trip, taken, onClose }: { trip?: TripData; taken: string[];
 const PAID_BILL = /\(you paid ([\d,]+\.\d\d)\) · [A-Z]{3} ([\d,]+\.\d\d)$/
 const num = (s: string) => Number(s.replace(/,/g, ''))
 
-/** Count a Splitwise bill you paid as your share, or as the whole bill (when friends paid you back by
- * bank and those repayments are on the trip). */
-function BillSheet({ trip, row, whole, share, money, onClose }: {
-  trip: string; row: TripRow; whole: number; share: number; money(n: number): string; onClose(): void
+const NOT_COUNTED = 'Not counted'
+
+/** A trip row: in the trip total or not (e.g. money back for a bill that already counts only your
+ * share), and for a Splitwise bill you paid, your share or the whole bill (when friends paid you
+ * back by bank and those repayments are in "Paid back to you"). */
+function RowSheet({ trip, block, row, money, bill, onClose }: {
+  trip: string; block: TripBlock; row: TripRow; money(n: number): string; bill?: { whole: number; share: number }; onClose(): void
 }) {
   const { backend, later } = useData()
-  const now = row.amount === whole && whole !== share ? 'whole' : 'share'
-  function pick(v: 'share' | 'whole' | '') {
-    if (!v || v === now) return onClose()
-    const amount = v === 'whole' ? whole : share
-    later(v === 'whole' ? `Counting the whole bill, ${money(whole)}` : `Counting your share, ${money(share)}`,
+  const counted = row.remarks.startsWith(NOT_COUNTED) ? 'no' : 'yes'
+  const whole = bill && row.amount === bill.whole && bill.whole !== bill.share ? 'whole' : 'share'
+  function count(v: 'yes' | 'no' | '') {
+    if (!v || v === counted) return onClose()
+    later(v === 'yes' ? `Counting ${row.item}` : `Not counting ${row.item}`,
+      () => backend.setRowCounted(trip, block, row, v === 'yes'), () => {})
+    onClose()
+  }
+  function pickBill(v: 'share' | 'whole' | '') {
+    if (!bill || !v || v === whole) return onClose()
+    const amount = v === 'whole' ? bill.whole : bill.share
+    later(v === 'whole' ? `Counting the whole bill, ${money(amount)}` : `Counting your share, ${money(amount)}`,
       () => backend.setWholeBill(trip, row.key!, v === 'whole', amount), () => {})
     onClose()
   }
   return (
-    <Sheet title={row.item} onClose={onClose}>
-      <p className="small">
-        You paid {money(whole)} in Splitwise; your share is {money(share)}. Count the whole bill when your friends paid
-        you back by bank and those repayments are in "Paid back to you".
-      </p>
-      <Chips label="Count" options={['share', 'whole'] as const} value={now} onChange={pick}
-        names={{ share: `My share, ${money(share)}`, whole: `Whole bill, ${money(whole)}` }} />
+    <Sheet title={row.item || 'Trip row'} onClose={onClose}>
+      <div className="stack">
+        {bill && (
+          <>
+            <p className="small">
+              You paid {money(bill.whole)} in Splitwise; your share is {money(bill.share)}. Count the whole bill when your
+              friends paid you back by bank and those repayments are in "Paid back to you".
+            </p>
+            <Chips label="Count" options={['share', 'whole'] as const} value={whole} onChange={pickBill}
+              names={{ share: `My share, ${money(bill.share)}`, whole: `Whole bill, ${money(bill.whole)}` }} />
+          </>
+        )}
+        <p className="small">
+          {block === 'paid'
+            ? "A counted repayment comes off the trip total. Don't count one that pays back a bill that counts only your share."
+            : 'Leave a row out of the trip total without deleting it.'}
+        </p>
+        <Chips label="Trip total" options={['yes', 'no'] as const} value={counted} onChange={count}
+          names={{ yes: `Count ${money(row.amount)}`, no: 'Not counted' }} />
+      </div>
     </Sheet>
   )
 }
 
-function TripRows({ title, rows, money, onBill }: {
+function TripRows({ title, rows, money, onRow, bills, note }: {
   title: string; rows: TripRow[]; money(n: number, r: TripRow): string
-  /** Tapping a Splitwise bill you paid: its whole bill and your share. */
-  onBill?(row: TripRow, whole: number, share: number): void
+  note?: string
+  /** Tapping a row; for a Splitwise bill you paid (when `bills`), its whole bill and your share. */
+  onRow?(row: TripRow, bill?: { whole: number; share: number }): void
+  bills?: boolean
 }) {
   return (
     <section className="card flush">
       <h3 className="list-title">
         {title} <span className="muted small">{rows.length}</span>
       </h3>
+      {note && <p className="muted small pad">{note}</p>}
       {rows.length === 0 ? (
         <p className="muted pad">None.</p>
       ) : (
         <ul className="rows">
           {newestFirst(rows).map((r, i) => {
-            const m = onBill && r.key ? PAID_BILL.exec(r.remarks) : null
+            const m = bills && r.key ? PAID_BILL.exec(r.remarks) : null
             const body = (
               <>
                 <span className="row-date">{r.date ? dayMonth(r.date) : ''}</span>
@@ -350,14 +377,18 @@ function TripRows({ title, rows, money, onBill }: {
                     ))}
                   </span>
                 </span>
-                <span className="row-amt">{money(r.amount, r)}</span>
+                <span className="row-amt">
+                  {money(r.amount, r)}
+                  {r.remarks.startsWith(NOT_COUNTED) && (
+                    <span className="muted" role="img" aria-label="not counted in the trip total" title="Not counted"> ⊘</span>
+                  )}
+                </span>
               </>
             )
             return (
               <li key={i}>
-                {m ? (
-                  <button type="button" className="row" onClick={() => onBill!(r, num(m[1]), num(m[2]))}
-                    aria-label={`${r.item}: choose your share or the whole bill`}>
+                {onRow ? (
+                  <button type="button" className="row" onClick={() => onRow(r, m ? { whole: num(m[1]), share: num(m[2]) } : undefined)}>
                     {body}
                   </button>
                 ) : (

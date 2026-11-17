@@ -36,6 +36,8 @@ import {
   type StatementMonths,
   type Trip,
   type TripDetail,
+  type TripBlock,
+  type TripRow,
   type TripTotal,
   type UploadFile,
   type UploadProgress,
@@ -669,10 +671,23 @@ export class PyodideBackend implements Backend {
     if (rows.length) await this.g.batch(id, await Promise.all(rows.map((r) => py<object>('remove_card', [tab.sheetId, r]))))
   }
 
-  async setWholeBill(trip: string, key: string, whole: boolean, amount: number): Promise<void> {
+  private async tripBook(trip: string): Promise<Book> {
     const t = (await this.getSettings()).trips.find((x) => x.name === trip)
     const b = t && (await this.book(+t.start.slice(0, 4)))
     if (!b) throw new Error(`No sheet for "${trip}" yet.`)
+    return b
+  }
+
+  async setRowCounted(trip: string, block: TripBlock, row: TripRow, counted: boolean): Promise<void> {
+    const b = await this.tripBook(trip)
+    const { values } = await this.bookValues(b, trip)
+    const data = await py<{ range: string; values: unknown[][] }[]>('row_counted', [values, trip, block, row, counted])
+    if (!data.length) throw new Error('That row changed in the sheet. Reload and try again.')
+    await this.g.write(b.id, data, 'USER_ENTERED')
+  }
+
+  async setWholeBill(trip: string, key: string, whole: boolean, amount: number): Promise<void> {
+    const b = await this.tripBook(trip)
     // The choice first, so a later upload agrees with the sheet even if the amount write fails.
     if (whole) await this.remember(`whole:${key}`, { date: '', amount, statement: `Whole bill on ${trip}` })
     else await this.forget(`whole:${key}`)

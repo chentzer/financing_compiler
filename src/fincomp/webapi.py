@@ -147,6 +147,11 @@ def month_summary(by_category: list[list], by_importance: list[list], totals: li
     return sheetplan.parse_summary(by_category, by_importance, totals)
 
 
+def row_counted(values: dict, tab: str, block: str, row: dict, counted: bool) -> list[dict]:
+    """A trip row in the total or not (values:batchUpdate data)."""
+    return sheetplan.row_counted(values, tab, block, row, counted)
+
+
 def edit_row(key: str, values: dict, sheet_ids: dict, fields: dict) -> dict:
     """Card answer or row edit: only the given fields of that row."""
     data, requests = sheetplan.edit_plan(key, values, {k: int(v) for k, v in sheet_ids.items()}, fields)
