@@ -10,8 +10,6 @@
  * - "Remember on this device" keeps the derived key in IndexedDB as a
  *   non-extractable CryptoKey: the page can use it to decrypt, but can't
  *   read the key out, and the PIN itself is never stored.
- *
- * Same format as fincomp/vault.py, so the CLI and the app read each other's.
  */
 
 export const ITERATIONS = 600_000
